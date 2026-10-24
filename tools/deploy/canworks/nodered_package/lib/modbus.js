@@ -1,6 +1,6 @@
 // modbus.js - a small Modbus TCP client: read holding registers (3), read
-// input registers (4) and write multiple registers (16), one transaction at
-// a time (the bridge answers in order). No dependencies, like the bridge's
+// input registers (4), write multiple registers (16) and read device
+// identification (43/14), one transaction at a time (the bridge answers in order). No dependencies, like the bridge's
 // own server.
 "use strict";
 
@@ -91,6 +91,13 @@ class ModbusClient extends EventEmitter {
     return this._request(16, pdu);
   }
 
+  // Read Device Identification (function 43, MEI type 14): `code` 1-3 a
+  // stream of objects from `objectId`, 4 that one object. Resolves {code,
+  // conformity, more, next, objects: {id: Buffer}}.
+  readDeviceId(code, objectId) {
+    return this._request(0x2b, Buffer.from([0x0e, code, objectId || 0]));
+  }
+
   _request(fc, body) {
     return new Promise((resolve, reject) => {
       if (!this.connected) {
@@ -138,6 +145,10 @@ class ModbusClient extends EventEmitter {
       const fc = frame[7];
       if (fc === (t.fc | 0x80)) {
         t.reject(new ModbusError("exception " + frame[8], "exception" + frame[8]));
+      } else if (t.fc === 0x2b) {
+        const id = parseDeviceId(frame.subarray(7));
+        if (id) t.resolve(id);
+        else t.reject(new ModbusError("a broken device identification answer", "format"));
       } else if (t.fc === 3 || t.fc === 4) {
         const n = frame[8] / 2;
         const words = new Array(n);
@@ -151,4 +162,18 @@ class ModbusClient extends EventEmitter {
   }
 }
 
-module.exports = { ModbusClient, ModbusError };
+// The answer PDU of 43/14: 0x2B 0x0E code conformity more-follows next-id
+// count, then per object its id, length and value.
+function parseDeviceId(pdu) {
+  if (pdu.length < 7 || pdu[0] !== 0x2b || pdu[1] !== 0x0e) return null;
+  const out = { code: pdu[2], conformity: pdu[3], more: pdu[4] === 0xff, next: pdu[5], objects: {} };
+  let at = 7;
+  for (let k = 0; k < pdu[6]; k++) {
+    if (at + 2 > pdu.length || at + 2 + pdu[at + 1] > pdu.length) return null;
+    out.objects[pdu[at]] = Buffer.from(pdu.subarray(at + 2, at + 2 + pdu[at + 1]));
+    at += 2 + pdu[at + 1];
+  }
+  return out;
+}
+
+module.exports = { ModbusClient, ModbusError, parseDeviceId };

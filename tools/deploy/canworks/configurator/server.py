@@ -380,7 +380,8 @@ def version2(cfg):
 
 def device_networks(cfg):
     """The open config's networks for the Devices page's remote CAN adapter
-    (devices.plan.adapter_row): interface, bit rate in kbit/s and serial device."""
+    (devices.plan.adapter_row): interface, bit rate in kbit/s, serial device
+    and whether the network is simulated (its adapter is kept, never opened)."""
     out = []
     for net in contract.networks(cfg or {}):
         a = net.get("adapter") if isinstance(net.get("adapter"), dict) else {}
@@ -388,7 +389,8 @@ def device_networks(cfg):
             kbit = int(str(a.get("bitrate")), 0) // 1000 if a.get("bitrate") is not None else None
         except ValueError:
             kbit = None
-        out.append({"interface": a.get("interface"), "bitrate_kbit": kbit, "device": a.get("device")})
+        out.append({"interface": a.get("interface"), "bitrate_kbit": kbit, "device": a.get("device"),
+                    "simulate": a.get("simulate") is True})
     return out
 
 
@@ -2127,6 +2129,21 @@ class Session:
             raise ApiError(400, "no connection %r" % index)
         if not isinstance(conn, dict) or conn.get("kind") not in connections.KINDS or conn["kind"] == "openplc":
             raise ApiError(400, "connection %r has no download" % index)
+        # Not with an error on this connection or on the listen address it needs (UI-3):
+        # the file would not work, and the row would say In sync.
+        mine = "bridge.connections[%d]" % int(index)
+
+        def blocks(paths):
+            ours = any(p == mine or p.startswith(mine + ".") for p in paths)
+            others = any(p.startswith("bridge.connections[") for p in paths)
+            return ours or ("bridge.listen" in paths and not others)
+        try:
+            errors = [it for it in contract.check_config(cfg, self.config_path, eds_paths=self.eds_paths(cfg)).items
+                      if it.get("level") == "error" and blocks(it.get("paths") or [])]
+        except (AttributeError, KeyError, TypeError, ValueError, OSError):
+            errors = []
+        if errors:
+            return {"items": errors, "errors": len(errors), "fix_first": True}
         folder = os.path.basename(self.folder.rstrip(os.sep)) or "canworks"
         try:
             name, mime, data, notes = connections.download(
@@ -2250,19 +2267,25 @@ class Session:
         config's mailboxes (canopen-configurator "Mailbox blocks the OpenPLC
         program declares", "Mailboxes nobody needs"): an error per block
         whose part is off, with the mailboxes that add what the program
-        uses, or a warning when nothing uses the config's mailboxes."""
+        uses, or a warning when neither the program nor a connection's
+        canworks blocks choice uses the config's mailboxes (modbus-connections
+        "Mailbox warning counts the connections")."""
         found = mailboxuse.scan_project(self.folder) if self.folder else {}
         mb = (cfg.get("bridge") or {}).get("mailboxes")
         need = mailboxuse.parts_needed(found)
         items = []
         add = mailboxuse.mailboxes_for(need, mb)
+        used = dict(need)
+        for c in (cfg.get("bridge") or {}).get("connections") or []:
+            if isinstance(c, dict) and c.get("kind") in ("trust", "plc", "nodered") and isinstance(c.get("blocks"), str):
+                used.update(mailboxuse.choice_parts(c.get("blocks")))
         for block in sorted(found):
             gone = mailboxuse.missing(mb, mailboxuse.parts_needed({block: found[block]}))
             if gone:
                 items.append({"level": "error", "paths": ["bridge.mailboxes"], "mailbox_fix": add,
                               "message": "%s: Turn on what the program uses on the Modbus bridge page"
                               % mailboxuse.describe(block, found[block], gone)})
-        if isinstance(mb, dict) and not need:
+        if isinstance(mb, dict) and not used:
             saved = self.mailbox_requests(cfg)
             items.append({"level": "warning", "paths": ["bridge.mailboxes"], "mailbox_fix": "off",
                           "message": "The program declares no mailbox block, but the mailboxes take %s: "
@@ -3487,6 +3510,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         instance = djobs.instance_name(os.path.basename(os.path.normpath(project))) if project else None
         saved = config_path if config_path and os.path.isfile(config_path) else None
         networks = device_networks(cfg) if project else None
+        from ..devices import plan as dplan
+        uses = dplan.networks_uses(cfg) if project and target in ("bridge", "openplc_modbus") else None
         from ..localbus import remote as remote_mod
         settings = online.Settings(config_dir())
         # The remote CAN adapter's token is this PC's, as for Adapter on another machine.
@@ -3499,7 +3524,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else None
         try:
             if route == ("GET", "/api/devices"):
-                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project), networks),
+                return {"devices": dev.view(target, instance, saved, __version__, self._own_host(project), networks,
+                                            uses=uses),
                         "target": target, "instance": instance, "pc_version": __version__, "jobs": dev.running_jobs()}
             if route == ("GET", "/api/devices/discovered"):
                 found = devices_service.not_saved([r for r in online.runtimes_list().get("discovered") or []
@@ -3524,7 +3550,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return {"forgotten": dev.forget_key(did)}
             if route == ("POST", "/api/devices/probe"):
                 return dev.probe(did, target, instance, saved, __version__, password=password, trust=trust,
-                                 refresh=body.get("refresh") is True, networks=networks)
+                                 refresh=body.get("refresh") is True, networks=networks, uses=uses)
             if route == ("POST", "/api/devices/adapter_token"):
                 # Copy token: the one answer that carries an adapter server's token, on request.
                 port = body.get("port")
@@ -5196,7 +5222,7 @@ class Server(http.server.ThreadingHTTPServer):
                            command=view["command"])
         installed = view["installed"]
         if not (view["restart"] and version == installed):
-            latest = self.updates.check()
+            latest = self.updates.check(wait=True)  # a check already running: its result
             if latest is None and self.updates.error:
                 raise ApiError(409, "Could not reach GitHub to find the newest release (%s); nothing was changed."
                                % self.updates.error)

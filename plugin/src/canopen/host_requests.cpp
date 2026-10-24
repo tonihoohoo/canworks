@@ -22,6 +22,7 @@ bool HostRequests::nmt(unsigned network, unsigned node, const std::string& comma
 void HostRequests::set_session(unsigned network, bool up) {
   if (network >= kMaxNetworks) return;
   std::lock_guard<std::mutex> lock(mu_);
+  if (session_[network] && !up) ended_[network].fetch_add(1, std::memory_order_acq_rel);
   session_[network] = up;
   if (up) return;
   for (auto it = queue_.begin(); it != queue_.end();)

@@ -65,14 +65,15 @@ class OpenplcModbusPage(OnlineBase):
 
         # The switch leaves the mailboxes off (mailboxes-on-demand) and says what they
         # would cost; turned on they are placed after the data, a count change moves
-        # them, and the page says the editor needs Update declarations.
+        # them, and the page says the editor project needs a Save and a Build.
         pg.wait_for_selector('[data-bridge-mailboxes="0"]')
         pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("7 instead of 5 Modbus requests per poll")')
         self.assertIn("(budget 40)", pg.inner_text("[data-bridge-mailbox-cost]"))
         self.assertIn("declares no mailbox block", pg.inner_text("[data-bridge-mailbox-who]"))
         pg.check('input[data-path="bridge.mailboxes"]')
         pg.wait_for_selector('[data-bridge-mailboxes="1"]')
-        self.assertIn("Update declarations", pg.inner_text("[data-bridge-mailbox-update]"))
+        self.assertIn("the editor project needs a Save", pg.inner_text("[data-bridge-mailbox-update]"))
+        self.assertNotIn("Update declarations", pg.inner_text("[data-bridge-mailbox-update]"))
         pg.wait_for_selector('[data-bridge-mailbox-cost]:has-text("The mailboxes take")')
         self.checked()
         self.assertIn("The program declares no mailbox block, but the mailboxes take 2 of the 7",

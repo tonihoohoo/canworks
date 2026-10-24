@@ -14,7 +14,7 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
-from canworks import __version__, cli, connections, editorproject, plcopen, plcopen_targets
+from canworks import __version__, cli, connections, editorproject, modbusmap, plcopen, plcopen_targets
 
 from .helpers import tmpdir
 from .test_contract import REPO
@@ -23,6 +23,7 @@ EXAMPLE_DIR = os.path.join(REPO, "examples", "openplc-modbus")
 DATA = os.path.join(os.path.dirname(__file__), "data", "plcopen")
 XSD = os.path.join(DATA, "tc6_xml_v201.xsd")
 NS = {"p": plcopen.NS}
+NS_201 = {"p": plcopen.NS_201}  # trust and generic
 CREATED = "2026-10-23T00:00:00"
 
 
@@ -188,9 +189,10 @@ class Writer(unittest.TestCase):
             with self.subTest(dialect):
                 text = plcopen.writer(fb, [lst], dialect, [task], created=CREATED)
                 root = ET.fromstring(text)
-                vendor = root.findall("p:addData/p:data", NS)
-                structs = root.findall(".//p:dataTypes/p:dataType", NS)
-                tasks = root.findall(".//p:resource/p:task", NS)
+                ns = {"p": plcopen.NAMESPACES[dialect]}
+                vendor = root.findall("p:addData/p:data", ns)
+                structs = root.findall(".//p:dataTypes/p:dataType", ns)
+                tasks = root.findall(".//p:resource/p:task", ns)
                 if dialect == "codesys":
                     self.assertEqual([d.get("name") for d in vendor], [plcopen.GLOBALVARS])
                     self.assertIn("{attribute 'qualified_only'}", text)
@@ -199,8 +201,8 @@ class Writer(unittest.TestCase):
                     self.assertEqual(vendor, [])
                     self.assertEqual([s.get("name") for s in structs], ["canworks_values"])
                     self.assertEqual([[i.get("typeName") for i in t] for t in tasks], [["p1", "p2"]])
-                    g = root.find(".//p:resource/p:globalVars/p:variable", NS)
-                    self.assertEqual((g.get("name"), g.find("p:type/p:derived", NS).get("name")),
+                    g = root.find(".//p:resource/p:globalVars/p:variable", ns)
+                    self.assertEqual((g.get("name"), g.find("p:type/p:derived", ns).get("name")),
                                      ("canworks", "canworks_values"))
                 errors = schema_errors(text)
                 if errors is not None:
@@ -242,6 +244,38 @@ class Targets(unittest.TestCase):
                 self.skipTest("neither lxml nor xmllint")
             self.assertEqual(errors, [])
 
+    def test_generic_standard_globals(self):
+        # plcopen-export "Standard globals in the generic dialect": TC6 2.01
+        # and `canworks` as VAR_EXTERNAL in every program that uses it.
+        for target in ("generic", "trust"):
+            with self.subTest(target):
+                xml = export(self, target, with_main=True)[plcopen_targets.XML_NAME]
+                root = ET.fromstring(xml)
+                self.assertEqual(root.tag, "{http://www.plcopen.org/xml/tc6_0201}project")
+                for name in ("canworks_in", "canworks_out", "main"):
+                    pou = root.find(".//p:pou[@name='%s']" % name, NS_201)
+                    ext = [(v.get("name"), v.find("p:type/p:derived", NS_201).get("name"))
+                           for v in pou.findall("p:interface/p:externalVars/p:variable", NS_201)]
+                    self.assertEqual(ext, [("canworks", "canworks_values")], name)
+                errors = schema_errors(xml)
+                if errors is not None:
+                    self.assertEqual(errors, [])
+
+    def test_bit_channels(self):
+        # canopen-pdo-io "Bit channels in the generated programs on the bridge"
+        d = tmpdir(self)
+        path, cfg = link_config(d, mailboxes=False)
+        dio = cfg["networks"][0]["nodes"][1]
+        dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 3, "name": "door"}]
+        dio["rx_pdos"][0]["entries"][0]["bits"] = [{"bit": 2, "name": "lamp"}]
+        decls = editorproject.declarations(cfg, path)
+        for target in ("trust", "generic"):
+            with self.subTest(target):
+                xml = plcopen_targets.files(cfg, decls, target, created=CREATED)[plcopen_targets.XML_NAME]
+                self.assertRegex(xml, r'<variable name="dio_lamp">\s*<type><BOOL/></type>')
+                self.assertIn("canworks.dio_door := (canworks.in_w[10] AND WORD#16#0800) &lt;&gt; WORD#0;", xml)
+                self.assertIn("SEL(canworks.dio_lamp, WORD#0, WORD#16#0400)", xml)
+
     def test_files(self):
         self.assertEqual(sorted(export(self, "trust")), ["README.txt", "canworks.xml", "canworks_io.st",
                                                          "io.toml.part"])
@@ -254,10 +288,10 @@ class Targets(unittest.TestCase):
         self.assertIn('<pou name="CAN_RECEIVE"', xml)
         self.assertIn('<pou name="CO_SDO_READ"', xml)
         root = ET.fromstring(xml)
-        self.assertEqual([i.get("typeName") for i in root.findall(".//p:task/p:pouInstance", NS)],
+        self.assertEqual([i.get("typeName") for i in root.findall(".//p:task/p:pouInstance", NS_201)],
                          ["canworks_in", "main", "canworks_out"])
         xml = export(self, "generic", library=False)[plcopen_targets.XML_NAME]
-        self.assertEqual([p.get("name") for p in ET.fromstring(xml).findall(".//p:pou", NS)],
+        self.assertEqual([p.get("name") for p in ET.fromstring(xml).findall(".//p:pou", NS_201)],
                          ["canworks_in", "canworks_out"])
 
     def test_trust_io(self):
@@ -309,6 +343,23 @@ class Targets(unittest.TestCase):
         with self.assertRaisesRegex(plcopen_targets.ExportError, "not a Modbus bridge config"):
             plcopen_targets.files(cfg, decls, "generic")
 
+    def test_trim_offered_only_when_it_fits(self):
+        # plcopen-export "truST trim offered only when it fits": the
+        # virtual-plant map needs 144 input registers even with one request mailbox.
+        with open(os.path.join(REPO, "examples", "virtual-plant", "canworks", "canworks.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+        cfg["bridge"]["watchdog_ms"] = 500
+        cfg["bridge"]["mailboxes"] = {}
+        for mailboxes in ("full", "trimmed"):
+            with self.subTest(mailboxes):
+                if mailboxes == "trimmed":
+                    cfg["bridge"]["mailboxes"] = {"requests": 1, "receive": False, "network_info": False,
+                                                  "cyclic_jobs": 0}
+                [text] = plcopen_targets.check(modbusmap.pack(cfg), "trust")
+                self.assertNotIn("trim the mailboxes", text)
+                self.assertIn("with a request mailbox this map needs 144 input registers, more than 125", text)
+                self.assertIn("canworks blocks None", text)
+
     def test_interval(self):
         self.assertEqual(plcopen_targets.task_interval_ms({"bridge": {"plc_link": True}}), 200)
         self.assertEqual(plcopen_targets.task_interval_ms({"bridge": {"plc_link": True, "watchdog_ms": 30}}), 10)
@@ -357,6 +408,8 @@ class Cli(unittest.TestCase):
                 code, out, err = self.run_cli("--config", path, *argv)
                 self.assertNotEqual(code, 0)
                 self.assertIn(text, err)
+                # canopen-deploy "Upload wording only for uploads"
+                self.assertNotIn("nothing was uploaded", err)
         self.assertFalse(os.path.exists(out_dir))
 
     def test_library(self):

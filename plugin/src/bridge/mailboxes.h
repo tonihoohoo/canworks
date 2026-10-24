@@ -239,7 +239,10 @@ class Mailboxes {
   // One loop round: `out` the newest output image (requests, acknowledgement,
   // keepalives) or null while no client has written yet, `in` the input
   // image to fill (responses, receive mailbox, info, cyclic table).
-  void service(const uint8_t* out, uint8_t* in, Clock::time_point now);
+  // `written` bit m: a client has written request mailbox m's counter and
+  // operation words since the start; until then its words are not taken,
+  // not even as the baseline.
+  void service(const uint8_t* out, uint8_t* in, Clock::time_point now, uint32_t written = ~0u);
   // The link stopped or mismatched, or the watchdog fired: every running
   // operation ends cancelled, every job stops, every receiver closes.
   // Returns how many it ended.
@@ -260,7 +263,7 @@ class Mailboxes {
   struct Receiver;
   struct Job;
 
-  void serve_request(unsigned m, const uint8_t* req, Clock::time_point now);
+  void serve_request(unsigned m, const uint8_t* req, Clock::time_point now, bool written = true);
   void run(Request& r, const MbCall& call, Clock::time_point now);
   void finish(Request& r, uint8_t error, const MbAnswer* a);
   void encode_response(const Request& r, uint8_t* block) const;

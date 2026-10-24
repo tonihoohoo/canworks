@@ -278,3 +278,10 @@ The DCFs written for CODESYS SHALL set every PDO mapping sub-entry beyond the ma
 #### Scenario: Shorter mapping than the EDS default
 - **WHEN** a TPDO's EDS default maps 4 entries and the config maps 2
 - **THEN** the DCF gives sub-entries 3 and 4 the value 0, and CODESYS shows 2 mapped entries
+
+### Requirement: CAN bus object named after the network
+The CODESYS build and export SHALL name each CAN bus object after its canworks network.
+
+#### Scenario: One network
+- **WHEN** a config with one network "field" is built into CODESYS
+- **THEN** the CAN bus object is named "field"

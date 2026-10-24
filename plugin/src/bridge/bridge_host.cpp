@@ -373,6 +373,13 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   zero_settle_ = std::max(std::chrono::milliseconds(100), std::chrono::milliseconds(2 * max_sync_us / 1000));
 
   server_.on_write = [this] { on_write(); };
+  {
+    // Read Device Identification (modbus-bridge "Device identification
+    // with the map hash"): a client checks the map without the PLC link.
+    char hash[16];
+    std::snprintf(hash, sizeof(hash), "%08X", map_hash_);
+    server_.identity = DeviceIdentity{"canworks", "canworks-bridge", version ? version : "", hash};
+  }
   server_.log = [](const std::string& line) { log_info("%s", line.c_str()); };
 
   Clock::time_point now = Clock::now();
@@ -387,6 +394,8 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   sdo_.reset(cfg_.has_sdo_bridge ? new SdoBridgeRegisters(cfg_.sdo_bridge_write) : nullptr);
   mailboxes_.reset();
   mailbox_backend_.reset();
+  mb_written_ = 0;
+  image_.watch_reads(0, 0);
   if (cfg_.has_mailboxes) {
     MailboxLayout ml;
     ml.requests = cfg_.mb_requests;
@@ -398,12 +407,21 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
     ml.out_base = cfg_.mb_output.index;
     mailbox_backend_.reset(new EngineMailboxBackend(static_cast<unsigned>(s.networks.size())));
     mailboxes_.reset(new Mailboxes(ml, *mailbox_backend_));
+    // The network info blocks and the cyclic job table, one after the other
+    // at the end of the input area: a program that only reads them (the
+    // info blocks) uses the mailboxes too.
+    image_.watch_reads(ml.info(0), ml.in_base + ml.input_bytes() - ml.info(0));
     log_info("bridge mailboxes: %u request mailbox(es) at input byte %u and output byte %u, receive mailbox %s "
              "(%u block(s)), network info for %u network(s), %u cyclic job(s); %u input and %u output bytes",
              ml.requests, ml.in_base, ml.out_base, ml.receive ? "on" : "off", ml.receive ? ml.receive_blocks : 0,
              ml.info_networks, ml.cyclic_jobs,
              ml.input_bytes(), ml.output_bytes());
   }
+  sessions_ended_.assign(s.networks.size(), 0);
+#if CANWORKS_WITH_CANOPEN
+  for (unsigned n = 0; n < s.networks.size(); ++n)
+    sessions_ended_[n] = canopen_plugin::HostRequests::instance().sessions_ended(n);
+#endif
   first_out_version_ = image_.take_outputs(out_copy_.data(), ~0ull);
   zero_pending_ = false;
   outputs_seen_ = ~0ull;
@@ -497,9 +515,11 @@ void BridgeHost::end_program_resources(const char* why) {
 }
 
 void BridgeHost::enter_off(OutputState why, Clock::time_point now) {
-  if (why != OutputState::kIdle)
-    end_program_resources(why == OutputState::kPlcStopped ? "the PLC stopped"
-                          : why == OutputState::kMismatch ? "the program was built for another map"
+  // Idle turns the outputs off too, and a mailbox frame or SDO write is an
+  // output: the program's mailbox resources end in every off state.
+  end_program_resources(why == OutputState::kIdle         ? "idle"
+                        : why == OutputState::kPlcStopped ? "the PLC stopped"
+                        : why == OutputState::kMismatch   ? "the program was built for another map"
                                                           : "the watchdog");
   const char* reason = why == OutputState::kIdle         ? "the control block's idle command"
                        : why == OutputState::kPlcStopped ? "the PLC link header (the PLC stopped)"
@@ -669,6 +689,10 @@ void BridgeHost::loop() {
       bool wrote_control = !control_known_ && cfg_.has_control &&
                            image_.client_wrote(cfg_.control_location.index, 2);
       bool wrote_sdo = !sdo_known_ && sdo_ && image_.client_wrote(cfg_.sdo_request.index, 2);
+      if (mailboxes_)
+        for (unsigned m = 0; m < mailboxes_->layout().requests; ++m)
+          if (!(mb_written_ >> m & 1u) && image_.client_wrote(mailboxes_->layout().request(m), 4))
+            mb_written_ |= 1u << m;
       ctl_seen = image_.take_outputs(out_copy_.data(), ctl_seen);
       take_baselines(out_copy_.data(), wrote_control, wrote_sdo);
       if (control_known_) service_control(out_copy_.data(), now);
@@ -678,11 +702,24 @@ void BridgeHost::loop() {
         // Requests count only while the outputs run: a stopped or
         // mismatched program's words are not taken.
         bool live = ctl_seen != first_out_version_ && supervisor_->running();
-        mailboxes_->service(live ? out_copy_.data() : nullptr, g_image->in.data(), now);
+        mailboxes_->service(live ? out_copy_.data() : nullptr, g_image->in.data(), now, mb_written_);
         if (uint32_t stalled = mailboxes_->take_stalled())
           log_warn("bridge receive mailbox: receivers 0x%08x closed: their records were not taken within 1 s (a "
                    "block that is no longer called, or a program that does not read them)",
                    stalled);
+#if CANWORKS_WITH_CANOPEN
+        // A CANopen session restart ends that network's resources (the
+        // CAN receivers on its port would stay open across it).
+        for (unsigned n = 0; n < sessions_ended_.size(); ++n) {
+          uint32_t ended = canopen_plugin::HostRequests::instance().sessions_ended(n);
+          if (ended == sessions_ended_[n]) continue;
+          sessions_ended_[n] = ended;
+          if (unsigned k = mailboxes_->end_network(n))
+            log_info("bridge mailboxes: %u operation(s), receiver(s) and cyclic job(s) of network %u ended (its "
+                     "CANopen session restarted)",
+                     k, n);
+        }
+#endif
         if (unsigned f = mailboxes_->take_forgotten())
           log_warn("bridge cyclic jobs: %u job(s) stopped: their block stopped calling (no keepalive for 1 s)", f);
       }
@@ -741,6 +778,7 @@ cJSON* BridgeHost::status_json() const {
     cJSON* mb = cJSON_AddObjectToObject(b, "mailboxes");
     cJSON_AddNumberToObject(mb, "operations", static_cast<double>(mailboxes_->operations()));
     cJSON_AddNumberToObject(mb, "receivers_opened", static_cast<double>(mailboxes_->receivers_opened()));
+    cJSON_AddNumberToObject(mb, "info_reads", static_cast<double>(image_.watched_reads()));
   }
   if (supervisor_ && cfg_.watchdog_ms && st == OutputState::kRunning)
     cJSON_AddNumberToObject(b, "watchdog_left_ms", static_cast<double>(supervisor_->left_ms(Clock::now())));

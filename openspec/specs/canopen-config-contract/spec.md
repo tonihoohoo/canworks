@@ -368,8 +368,8 @@ One relevance table SHALL list, per setting, the targets that use it and why the
 canworks-bridge and `canworks-bridge` SHALL refuse a config with a `codesys` object at load with an error saying it is for CODESYS, and the deploy tool SHALL refuse to upload one to a runtime or a bridge.
 
 #### Scenario: CODESYS config uploaded to OpenPLC
-- **WHEN** `canworks-deploy --config codesys.json --runtime HOST` is run with a CODESYS config
-- **THEN** it stops before uploading with a message pointing to `--codesys-import`
+- **WHEN** `canworks-deploy --config codesys.json --bridge HOST` is run with a CODESYS config
+- **THEN** it stops before uploading with a message saying the config is for CODESYS
 
 ### Requirement: Published JSON Schema of the bridge config
 The repository SHALL publish a JSON Schema (draft 2020-12) for each supported config version. The schema SHALL describe every field the bridge reads, its type, and whether it is required. Any file the bridge accepts SHALL validate against the schema, and the checks the schema cannot express (EDS contents, overlapping locations, node ID uniqueness) SHALL be documented next to it.

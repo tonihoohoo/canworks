@@ -16,7 +16,7 @@ from canworks.configurator import server as srv
 from .fake_diag import TOKEN, FakePlugin
 from .helpers import with_openplc, REPO, back_to_nodes, editor_project_action, header_action, node_tab, tree_net, tree_node, tree_view, tool_tab, network_tab
 from .test_configurator_online_page import OnlineBase
-from .test_configurator_page import RTD
+from .test_configurator_page import RTD, fake_editor_cli
 
 # Every visible field, dropdown and button whose text does not fit, and every
 # view, pane or table that scrolls sideways. The text width comes from the
@@ -36,7 +36,8 @@ FIT_CHECK = r"""() => {
   }
   for (const e of document.querySelectorAll("button, .file-button")) {
     if (!shown(e)) continue;
-    if (e.scrollWidth > e.clientWidth + 1) out.push(["button clipped", name(e)]);
+    // The header's target link shortens with the target (UI-13).
+    if (e.scrollWidth > e.clientWidth + 1 && !e.closest("#mode .target-mark")) out.push(["button clipped", name(e)]);
     if (e.getBoundingClientRect().height > 48 && !e.classList.contains("choice") && !e.classList.contains("trace-insp-rail") && !e.closest("#problem-list") && !e.closest("#recent")) out.push(["button wraps", name(e)]);
     if (e.getBoundingClientRect().right > document.documentElement.clientWidth + 1) out.push(["button off screen", name(e)]);
   }
@@ -51,7 +52,7 @@ FIT_CHECK = r"""() => {
   // Text cut by its box (fix-clipped-text-configure): only data cells, which
   // carry their whole value in a tooltip, may be cut, and the header's folder
   // name in a narrow window (the badge's tooltip has the whole path).
-  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot, header .top-row h1, #mode .mode-name";
+  const cutOk = "[role=gridcell], [role=cell], .trace-rows, .series-item, .link-pos, .visually-hidden, .uplot, header .top-row h1, #mode .mode-name, #mode .mode-kind, #mode .target-mark";
   for (const e of document.querySelectorAll("#view *, #side *, #problems *, header *, dialog[open] *")) {
     if (!shown(e) || !e.textContent.trim() || e.closest(cutOk)) continue;
     const cs = getComputedStyle(e);
@@ -329,6 +330,8 @@ class Layout(OnlineBase):
 
     def test_standalone_header_and_new_project_dialog(self):
         pg = self.page
+        os.environ["OPENPLC_CLI"] = fake_editor_cli(self.dir)  # New editor project… needs it (UI-9)
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
         folder = os.path.join(self.dir, "standalone")
         os.makedirs(folder)
         shutil.copy(os.path.join(RTD, "rtd8.eds"), folder)
@@ -399,6 +402,29 @@ class Layout(OnlineBase):
                 self.assertGreaterEqual(box["x"], 0, "%s at %d" % (menu, width))
                 self.assertLessEqual(box["x"] + box["width"], width, "%s at %d" % (menu, width))
                 pg.click(menu + " > summary")
+            header_action(pg, "#btn-close")
+            pg.wait_for_selector("#start:not([hidden])")
+
+    def test_project_name_before_the_target(self):
+        """UI-13: with the update chip at 1280 px the project chip shortens
+        the target, never the project name."""
+        pg = self.page
+        folder = os.path.join(self.dir, "virtual-plant")
+        shutil.copytree(os.path.join(REPO, "examples", "virtual-plant"), folder)
+        view = {"version": "0.131.1", "latest": "0.132.0", "newer": True, "kind": "uv-tool", "checked_at": 1}
+        pg.route("**/api/update", lambda r: r.fulfill(status=200, content_type="application/json", body=json.dumps(view)))
+        for width in (1280, 1100):
+            pg.set_viewport_size({"width": width, "height": 800})
+            pg.goto(self.server.url)
+            pg.click("#start-open")
+            pg.fill("[data-folder=path]", folder)
+            pg.click("[data-folder=dialog] [data-value=use]")
+            pg.wait_for_selector("#editor:not([hidden])")
+            pg.wait_for_selector("#update-chip:not([hidden])")
+            pg.wait_for_timeout(200)
+            name = pg.evaluate("""() => { const n = document.querySelector('#mode .mode-name');
+                return [n.textContent, n.scrollWidth <= n.clientWidth]; }""")
+            self.assertEqual(name, ["virtual-plant", True], "at %d" % width)
             header_action(pg, "#btn-close")
             pg.wait_for_selector("#start:not([hidden])")
 

@@ -42,6 +42,12 @@ class HostRequests {
   // Bus thread: the network's bus session started or ended; at the end its
   // waiting commands are dropped.
   void set_session(unsigned network, bool up);
+  // Host: how many bus sessions of `network` have ended (a session restart,
+  // the interface going down): the bridge ends that network's mailbox
+  // resources when it changes.
+  uint32_t sessions_ended(unsigned network) const {
+    return network < kMaxNetworks ? ended_[network].load(std::memory_order_acquire) : 0;
+  }
 
   // Bus thread: node `node` of `network` is operational (or not).
   void set_operational(unsigned network, unsigned node, bool up);
@@ -54,6 +60,7 @@ class HostRequests {
   std::mutex mu_;
   std::vector<HostNmt> queue_;
   bool session_[kMaxNetworks] = {};  // under mu_
+  std::atomic<uint32_t> ended_[kMaxNetworks] = {};
   std::atomic<uint64_t> up_[kMaxNetworks][2] = {};
 };
 

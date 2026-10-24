@@ -42,6 +42,11 @@ async function heartbeat() {
       signal: ctl ? ctl.signal : undefined,
     });
     LIFE.misses = 0;  // it answered
+    if (res.status === 403) {
+      let why = null;
+      try { why = (await res.json()).error; } catch (e) { /* no body */ }
+      if (why === SESSION_REFUSED) { showStopped("restarted"); return; }
+    }
     if (!res.ok) return;
     try { r = await res.json(); } catch (e) { return; }  // an answer all the same
   } catch (e) {
@@ -157,10 +162,13 @@ function updateOnQuitText() {
 }
 
 // After Quit, or when the configurator has gone ("gone": it did not answer
-// two heartbeats): the page says so; nothing on it asks the server any more.
-// Gone with unsaved changes, the draft config can still be downloaded.
+// two heartbeats; "restarted": it answers with another session, so this
+// tab's token is refused): the page says so; nothing on it asks the server
+// any more. Gone with unsaved changes, the draft config can still be downloaded.
 function showStopped(how) {
-  const gone = how === "gone";
+  if (LIFE.stopped) return;
+  const restarted = how === "restarted";
+  const gone = how === "gone" || restarted;
   const unsaved = gone && !!unsavedWork();
   const draft = unsaved && !TRACE_WINDOW && S.model && S.dirty ? fileConfig() : null;
   LIFE.stopped = true;
@@ -170,7 +178,13 @@ function showStopped(how) {
   document.title = "canworks configurator (stopped)";
   document.body.dataset.stopped = "1";
   const again = "To start it again, open the canworks configurator shortcut, or run canworks-config in a terminal: it opens a new tab.";
-  const box = gone
+  const box = restarted
+    ? el("main", { id: "stopped", class: "stopped", role: "alert", dataset: { restarted: "1" } },
+      el("h1", null, "This configurator was restarted."),
+      el("p", null, "This tab belongs to the one before, so it stopped. Open the new tab, or the canworks configurator shortcut. " +
+        "Once the new configurator has opened in this browser, this tab can join it:"),
+      el("p", null, el("button", { type: "button", id: "stopped-reload", onclick: () => location.reload() }, "Open it again in this tab")))
+    : gone
     ? el("main", { id: "stopped", class: "stopped", role: "alert", dataset: { gone: "1" } },
       el("h1", null, "canworks-config is not running any more."),
       el("p", null, "It may have been stopped from another tab, by the system, or because this page was away too long."),

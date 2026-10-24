@@ -11,7 +11,7 @@
 `sim` controls simulated devices (docs/simulator.md): the bridge's, with
 --runtime, or a standalone canworks-canopen-sim's, with --sim HOST[:PORT].
 
-The channel is opt-in (master.diagnostics in canworks.json) and speaks
+The channel is opt-in (the top-level diagnostics in canworks.json) and speaks
 line-delimited JSON over TLS, port 7531 by default, after a SCRAM-SHA-256
 login bound to the server's certificate, so the token never crosses the
 network; see docs/diagnostics.md.
@@ -79,7 +79,7 @@ def _hmac(key, data):
 
 
 def token_verifier(token, salt=None, iterations=SCRAM_ITERATIONS):
-    """What goes in master.diagnostics.token_verifier: SCRAM-SHA-256 with a
+    """What goes in diagnostics.token_verifier: SCRAM-SHA-256 with a
     fresh random salt. It does not let anyone log in."""
     salt = salt if salt is not None else secrets.token_bytes(16)
     sp = _salted(token, salt, iterations)
@@ -883,8 +883,8 @@ def _sync_counter(t):
 def parser():
     p = argparse.ArgumentParser(
         prog="canworks-diag",
-        description="Read the live state of the CANopen network from the bridge's diagnostics channel "
-                    "(master.diagnostics in canworks.json), and, when the configuration allows changes, write "
+        description="Read the live state of the CANopen, J1939 and CAN networks from the bridge's diagnostics "
+                    "channel (the top-level diagnostics in canworks.json), and, when the configuration allows changes, write "
                     "objects and send NMT commands.")
     p.add_argument("--runtime", metavar="HOST[:PORT]",
                    help="the runtime host (diagnostics port, default %d); `local` is the local runtime "
@@ -1365,9 +1365,14 @@ def mailbox_status_line(b):
     if not isinstance(mb, dict):
         return "mailboxes: no mailboxes"
     ops, rx = mb.get("operations", 0), mb.get("receivers_opened", 0)
-    line = "mailboxes: %s operation%s, %s receiver%s opened since start" % (
-        ops, "" if ops == 1 else "s", rx, "" if rx == 1 else "s")
-    if not ops and not rx:
+    # Reads of the network info blocks and the cyclic job table: CAN_BUS_INFO
+    # and J1939_ECU_INFO use the mailboxes without a request.
+    reads = mb.get("info_reads", 0)
+    line = "mailboxes: %s operation%s, %s receiver%s opened" % (ops, "" if ops == 1 else "s", rx, "" if rx == 1 else "s")
+    if reads:
+        line += ", %s network info or job table read%s" % (reads, "" if reads == 1 else "s")
+    line += " since start"
+    if not ops and not rx and not reads:
         line += ": nothing has used the mailboxes; turning them off saves Modbus requests"
     return line
 

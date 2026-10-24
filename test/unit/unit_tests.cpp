@@ -3949,6 +3949,36 @@ TEST(plc_requests_taken_times_out) {
   q.close();
 }
 
+// The bridge's mailboxes cancel a request (modbus-bridge-mailboxes "Cancel
+// drops queued work"): queued, no network takes it; taken but still waiting
+// in the network's queue, it is no longer wanted; a late answer is ignored.
+TEST(plc_requests_cancel) {
+  using canopen_plugin::PlcRequests;
+  PlcRequests& q = PlcRequests::instance();
+  q.open();
+  canopen_plc_request r{};
+  r.node = 5;
+  r.index = 0x1018;
+  r.subindex = 1;
+  uint16_t err = 0;
+  uint32_t h = q.start(r, err);
+  CHECK(h != 0);
+  q.cancel(h);
+  std::vector<PlcRequests::Job> jobs;
+  q.take(0, jobs);
+  CHECK(jobs.empty());
+  canopen_plc_result res{};
+  CHECK(q.poll(h, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  h = q.start(r, err);
+  q.take(0, jobs);
+  CHECK(jobs.size() == 1 && q.wanted(h));
+  q.cancel(h);
+  CHECK(!q.wanted(h));
+  q.finish(h, 0, 0, nullptr, 0);
+  CHECK(q.poll(h, &res, nullptr, 0) == 2 && res.error_id == CANOPEN_PLC_ERR_CANCELLED);
+  q.close();
+}
+
 // Several networks: a request names its network; each network takes and
 // cancels only its own (add-several-can-networks, SDO blocks on every network).
 TEST(plc_requests_per_network) {

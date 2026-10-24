@@ -119,6 +119,17 @@ int PlcRequests::poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, u
   return s->res.error_id ? 2 : 1;
 }
 
+void PlcRequests::cancel(uint32_t handle) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (Slot* s = handle ? find(handle) : nullptr) s->state = State::Free;
+}
+
+bool PlcRequests::wanted(uint32_t handle) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  Slot* s = handle ? find(handle) : nullptr;
+  return s && s->state == State::Taken;
+}
+
 void PlcRequests::open(uint32_t sdo_networks) {
   std::lock_guard<std::mutex> lock(mutex_);
   for (auto& s : slots_) s.state = State::Free;

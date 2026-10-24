@@ -1,6 +1,6 @@
 # canworks-deploy
 
-Adds a CANopen or J1939 config and its EDS files to an OpenPLC editor build ("Build only" output or `openplc-cli compile`), checks them, and uploads the result to an OpenPLC Runtime v4. See [docs/deploy.md](../../docs/deploy.md).
+Checks a config, puts it on canworks-bridge, exports it, or makes an OpenPLC Editor project from it. See [docs/deploy.md](../../docs/deploy.md).
 
 On Windows, macOS or Linux without Python: install [uv](https://docs.astral.sh/uv/), download the wheel from the newest `deploy-v<version>` release, and run `uv tool install --compile-bytecode --python 3.14 <wheel>`, or let one line do it all (`curl -LsSf https://raw.githubusercontent.com/tonihoohoo/canworks/main/scripts/install-pc.sh | sh`; Windows: `install-pc.ps1`) ([docs/install-pc.md](../../docs/install-pc.md)). With Python already installed:
 
@@ -9,7 +9,7 @@ pipx install ./tools/deploy
 canworks-deploy --help
 ```
 
-`canworks-deploy --config canopen_config.json --export-dcf <dir>` writes each node's configuration as a CiA 306 DCF instead ([docs/deploy.md](../../docs/deploy.md#export-the-nodes-as-dcf-files)).
+`canworks-deploy --config canopen_config.json --export-dcf <dir>` writes each node's configuration as a CiA 306 DCF ([docs/deploy.md](../../docs/deploy.md#export-the-nodes-as-dcf-files)).
 
 `canworks-deploy --config canworks.json --codesys-import` builds a CODESYS config into the CODESYS project it names, with CODESYS on this PC ([docs/codesys.md](../../docs/codesys.md)).
 

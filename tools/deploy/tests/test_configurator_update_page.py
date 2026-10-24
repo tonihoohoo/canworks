@@ -151,6 +151,29 @@ class UpdatePage(OnlineBase):
             time.sleep(0.05)
         self.assertEqual(srv_ui()["update_check"], "off")
 
+    def test_check_now_keeps_the_menu_open(self):
+        # UI-6: the menu stays open with the result there and in the banner, at 1280 px (in ⋯) and 1800 px.
+        for width in (1280, 1800):
+            with self.subTest(width=width):
+                self.updates()
+                self.page.set_viewport_size({"width": width, "height": 860})
+                self.start()
+                header_action(self.page, "#menu-settings > summary")
+                self.page.wait_for_selector("#update-check-now:visible")
+                self.page.click("#update-check-now")
+                self.page.wait_for_selector("#banner:has-text('canworks 99.0.0 is available')")
+                self.assertTrue(self.page.evaluate("document.querySelector('#menu-settings').open"))
+                self.assertTrue(self.page.is_visible("#update-status"))
+                self.assertIn("99.0.0 is available", self.page.inner_text("#update-status"))
+
+    def test_check_now_off_with_the_check(self):
+        # UI-7: CANWORKS_NO_UPDATE_CHECK turns Check now off too, with the reason.
+        self.start()
+        header_action(self.page, "#menu-settings > summary")
+        self.page.wait_for_selector("#update-status:has-text('Turned off by CANWORKS_NO_UPDATE_CHECK')")
+        self.assertTrue(self.page.is_disabled("#update-check-now"))
+        self.assertIn("CANWORKS_NO_UPDATE_CHECK", self.page.get_attribute("#update-check-now", "title"))
+
     def test_updating_page_reloads_and_shows_the_result(self):
         u = self.updates()
         self.start()

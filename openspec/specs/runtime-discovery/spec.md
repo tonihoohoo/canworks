@@ -48,3 +48,10 @@ Discovery in the PC tools (the connect box, the adapter server list, the Devices
 #### Scenario: Cancel on the link question
 - **WHEN** the user presses Cancel on the firewall question that appears while the PC pairs with a runtime
 - **THEN** online access to that runtime works, and the remote link over the local network connects
+
+### Requirement: Advertised port from the config
+The local-network advertisement SHALL carry the config's `diagnostics.port` when `install-link.sh` is not given `--diag-port`.
+
+#### Scenario: Port 7541
+- **WHEN** discovery is installed for a config with `diagnostics.port` 7541
+- **THEN** the advertisement says port 7541 and a PC lists the device with 7541

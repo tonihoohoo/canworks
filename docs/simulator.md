@@ -120,7 +120,7 @@ canworks-canopen-sim scenario start sensor-break
 canworks-canopen-sim scenario stop sensor-break
 ```
 
-The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, `drive-input --blocked`, ...; `canworks-canopen-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it. A device is addressed by its configured node ID, its name, or the node ID it has now (`status` shows `lss0 (no node ID) now node 70` for a device an LSS master gave node ID 70: `fault 70 ...` and `fault lss0 ...` both reach it); a configured node ID wins over another device's current one.
+The `fault` kinds are those of [Faults](#faults), written with dashes (`heartbeat-stop`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `forget-node-id`, ...); `fault 5 json '{...}'` takes the JSON form. Their fields are arguments or options as above (`emcy CODE --period-ms MS`, `sdo-delay MS --object OBJ`, `identity --serial-number N`, ...; `canworks-canopen-sim --help` lists them). `get 5` without objects prints every object in node 5's PDOs. A command exits 1 when the simulator answers with an error, 2 when it cannot reach it. A device is addressed by its configured node ID, its name, or the node ID it has now (`status` shows `lss0 (no node ID) now node 70` for a device an LSS master gave node ID 70: `fault 70 ...` and `fault lss0 ...` both reach it); a configured node ID wins over another device's current one.
 
 #### Test mode
 
@@ -268,7 +268,7 @@ An expression is checked when it is loaded: an unknown name, function, object or
 ```text
 20 + lag(if(bit([7/0x6200:1], 0), 80, 0), 30)    heater on node 7's output bit 0, 30 s time constant
 [0x6411:1] * 0.5 + noise(2)                        analogue loopback, halved, with noise
-if([4/0x6041] & 0x0400, 1, 0)                      1 once drive 4 reports target reached
+if(bit([4/0x6000:1], 0), 1, 0)                     1 while node 4's input bit 0 is set
 integrate([0x6200:1] * 10)                         a tank filled by an output
 ```
 

@@ -205,7 +205,8 @@ add_test(NAME bridge_host_tests COMMAND bridge_host_tests)
 set_tests_properties(bridge_host_tests PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
 # Its config upload over the diagnostics channel (put_config).
 add_test(NAME bridge_upload COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/bridge/upload_test.py
-         $<TARGET_FILE:canworks-bridge> ${PROJECT_SOURCE_DIR}/examples/modbus-bridge)
+         $<TARGET_FILE:canworks-bridge> ${PROJECT_SOURCE_DIR}/examples/modbus-bridge
+         ${PROJECT_SOURCE_DIR}/examples/virtual-plant/canworks)
 set_tests_properties(bridge_upload PROPERTIES TIMEOUT 120 ENVIRONMENT "${EDSLINT_ENV}")
 # The CiA 309-3 gateway end to end: canworks-bridge on a simulated bus with
 # the deploy tool's client (test/cia309/run.sh).

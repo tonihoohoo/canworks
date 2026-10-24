@@ -342,6 +342,25 @@ class Routes(unittest.TestCase):
         self.assertEqual((status, body["version"], body["asked"], body["restart"]), (200, "9.3.0", "9.1.0", False))
         self.assertEqual(start.call_args[0][0]["to"], "9.3.0")
 
+    def test_waits_for_a_running_check(self):
+        """Update now while the start-time check still runs: the update goes
+        to what that check finds, not to the version kept from before."""
+        gate = threading.Event()
+
+        def slow():
+            gate.wait(10)
+            return "9.3.0"
+        self.server.updates.fetch = slow
+        first = threading.Thread(target=self.server.updates.check, daemon=True)
+        first.start()
+        self.addCleanup(first.join, 10)
+        self.addCleanup(gate.set)
+        deadline = time.monotonic() + 5
+        while not self.server.updates.checking and time.monotonic() < deadline:
+            time.sleep(0.01)
+        threading.Timer(0.3, gate.set).start()
+        self.assertEqual(self.server.update_target("9.1.0"), "9.3.0")
+
     def test_offline_at_update(self):
         def offline():
             raise OSError("no network")

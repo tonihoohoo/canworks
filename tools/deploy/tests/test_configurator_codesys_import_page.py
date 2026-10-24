@@ -180,7 +180,7 @@ class CodesysImportPage(OnlineBase):
         answers = ["rename", "replace", "replace"]
         for a in answers:
             pg.wait_for_selector("#modal[open] #modal-buttons button[data-value=rename]")
-            self.assertIn("clashes with", pg.inner_text("#modal-text"))
+            self.assertIn("has the same name as the master network", pg.inner_text("#modal-text"))
             pg.click('#modal-buttons button[data-value="%s"]' % a)
         pg.wait_for_selector("#banner:has-text('Added 3 networks from plant.xml')")
         nets = pg.evaluate("() => fileConfig().networks")
@@ -190,6 +190,39 @@ class CodesysImportPage(OnlineBase):
         # Same EDS files: nothing new to copy.
         self.assertEqual(sorted(f for f in os.listdir(folder) if f.endswith(".eds")),
                          ["cell.eds", "conveyor.eds", "dio16.eds", "rtd8.eds"])
+
+
+    def test_clash_reason_and_roles(self):
+        # UI-11: the same CODESYS network number as a slave network: the reason and both roles,
+        # from what the server sends now (name, net_id, with) and from its reason field when there.
+        pg = self.page
+        self.library()
+        res = xmlimport.convert(xmlimport.choices(xmlimport.read(PLANT_XML))[0],
+                                xmlimport.library_finder(xmlimport.folder_matcher([("library", PLANT_DIR)])))
+        folder = os.path.join(self.dir, "line")
+        xmlimport.write(res, folder)
+        pg.goto(self.server.url)
+        pg.evaluate("p => api('POST', '/api/open', {path: p, mode: 'auto'})", folder)
+        pg.reload()
+        pg.wait_for_selector("#editor:not([hidden])")
+        pg.evaluate("() => { const n = S.model.networks[1]; n.name = 'cell'; n.role = 'slave'; }")
+        clash = [{"name": "host", "net_id": 2, "with": "cell"},
+                 {"name": "host2", "net_id": 3, "with": "other", "reason": "net_id", "with_role": "slave"}]
+        pg.route("**/api/codesys/import/add", lambda r: r.fulfill(status=409, content_type="application/json", body=json.dumps(
+            {"error": "network names or numbers in use", "conflicts": clash})))
+        pg.evaluate("() => { ciAdd({ networks: [], source: 'plant.xml' }); }")
+        pg.wait_for_selector("#modal[open] #modal-buttons button[data-value=replace]")
+        self.assertEqual(pg.inner_text("#modal-text"),
+                         "The imported network host clashes with cell in this config: both are CODESYS network 2.")
+        self.assertEqual(pg.inner_text('#modal-buttons button[data-value="replace"]'),
+                         "Replace the slave network cell with the master host")
+        pg.click('#modal-buttons button[data-value="rename"]')
+        pg.wait_for_selector("#modal[open] #modal-text:has-text('host2')")
+        self.assertIn("both are CODESYS network 3", pg.inner_text("#modal-text"))
+        self.assertEqual(pg.inner_text('#modal-buttons button[data-value="replace"]'),
+                         "Replace the slave network other with the master host2")
+        pg.click('#modal-buttons button[data-value="cancel"]')
+
 
 
 class BuildRemoveQuestion(OnlineBase):

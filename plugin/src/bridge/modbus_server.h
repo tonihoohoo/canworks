@@ -16,6 +16,7 @@
 
 #include "address_list.h"
 #include "byte_image.h"
+#include "modbus.h"
 
 namespace canworks_bridge {
 
@@ -50,6 +51,8 @@ class ModbusServer {
   std::function<void()> on_write;
   // Log lines (connections refused or closed). Default: none.
   std::function<void(const std::string&)> log;
+  // Function 43 / MEI 14's answer; set before start().
+  DeviceIdentity identity;
 
   // Binds and starts the server thread; false with `err` if the address
   // cannot be bound.

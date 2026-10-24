@@ -45,6 +45,18 @@ def file_sha256(path):
         return None
 
 
+def config_hashes(config_path):
+    """The sorted "name sha256" of every file a job uploads with the saved
+    config `config_path` (config_files), or None."""
+    if not config_path:
+        return None
+    try:
+        files = config_files(os.path.dirname(config_path))
+    except (SshError, OSError):
+        return None
+    return sorted("%s %s" % (os.path.basename(f), file_sha256(f)) for f in files)
+
+
 def summary(instances, own=None):
     """One line on a device's bridge instances for the device list: the open
     project's, else the running ones by name and how many are stopped."""
@@ -57,6 +69,17 @@ def summary(instances, own=None):
     if stopped:
         return "%d bridge%s stopped" % (stopped, "" if stopped == 1 else "s")
     return ""
+
+
+def job_options(probe):
+    """The install options as the device has them: a new install gets the
+    remote link and the advertisement, an update or a reinstall keeps them
+    as they are (the link only when installed, discovery only when the
+    device advertises now)."""
+    probe = probe or {}
+    if not probe.get("bridge"):
+        return {"link": True, "discovery": True}
+    return {"link": probe.get("link") is not None, "discovery": probe.get("discovery") is True}
 
 
 def _resolve(host):
@@ -147,20 +170,21 @@ class Devices:
             v = release.latest_on_device(conn)
         return v
 
-    def view(self, target, instance, config_path, pc_version, own_host=None, networks=None):
+    def view(self, target, instance, config_path, pc_version, own_host=None, networks=None, uses=None):
         """The device list: every device of this PC, each with one line on
         its bridge instances from its last probe (`summary`), the open
         project's own devices first (its runtime host `own_host`, its bridge
         `instance`)."""
         out = []
-        sha = file_sha256(config_path) if config_path else None
+        sha = config_hashes(config_path)
         for d in self.store.devices():
             did = store_mod.device_id(d["host"], d.get("port"))
             item = {"id": did, "host": d["host"], "port": d.get("port") or 22, "user": d.get("user") or "",
                     "probe_at": d.get("probe_at"), "job": d.get("job"), "job_seconds": d.get("job_seconds")}
             if d.get("probe"):
                 item["plan"] = plan_mod.plan(d["probe"], target, d.get("latest"), pc_version, instance, sha,
-                                             networks, self.tokens(d["host"], d["probe"]))
+                                             networks, self.tokens(d["host"], d["probe"]), uses=uses)
+                item["plan"]["options"] = job_options(d["probe"])
                 item["latest"] = d.get("latest")
             found = [i for i in ((d.get("probe") or {}).get("bridge") or {}).get("instances") or []
                      if isinstance(i, dict) and i.get("name")]
@@ -178,6 +202,7 @@ class Devices:
     def remove(self, did):
         with self.lock:
             item = self.conns.pop(did, None)
+        self.running.pop(did, None)
         if item:
             item[0].close()
         self.store.remove(did)
@@ -187,7 +212,7 @@ class Devices:
         return ssh.forget_host_key(self.store, dev["host"], dev.get("port") or 22)
 
     def probe(self, did, target, instance, config_path, pc_version, password=None, trust=None,
-              refresh=False, networks=None):
+              refresh=False, networks=None, uses=None):
         conn, by_password = self.connection(did, password=password, trust=trust)
         env = "".join("%s=%s " % (k, ssh.quote(v)) for k, v in sorted(self.probe_env.items()))
         try:
@@ -211,11 +236,14 @@ class Devices:
         key = did
         if job.get("state") in ("active", "activating"):
             self.running[key] = job.get("id")
-        sha = file_sha256(config_path) if config_path else None
+        else:
+            self.running.pop(key, None)  # ended, or its follow never saw the end
+        sha = config_hashes(config_path)
         out = {"probe": probe, "latest": latest,
                "plan": plan_mod.plan(probe, target, latest, pc_version, instance, sha, networks,
-                                     self.tokens(self.store.get(did)["host"], probe)),
+                                     self.tokens(self.store.get(did)["host"], probe), uses=uses),
                "offer_key_login": by_password}
+        out["plan"]["options"] = job_options(probe)
         return out
 
     def key_login(self, did):
@@ -285,11 +313,15 @@ class Devices:
             files = config_files(config_dir)
             upload = jobs.make_upload_dir(conn)
             conn.put_files(upload, files)
-        link = options.get("link") is not False
-        if action == "install_bridge" and probe.get("link") is not None \
-                and not (probe.get("link_config") or "").startswith("/etc/canworks-bridge/"):
-            link = False  # the device's link serves another config: not repointed at a bridge
-        discovery = options.get("discovery") is not False
+        defaults = job_options(probe)
+        link = options.get("link", defaults["link"]) is not False
+        link_instance = None
+        if action == "install_bridge" and probe.get("link") is not None:
+            if not (probe.get("link_config") or "").startswith(plan_mod.BRIDGE_CONFIGS):
+                link = False  # the device's link serves another config: not repointed at a bridge
+            else:
+                link_instance = (plan_mod.link_serves(probe) or {}).get("instance")  # it keeps its instance
+        discovery = options.get("discovery", defaults["discovery"]) is not False
         link_config = runtime_port = None
         if action.startswith("link_") or action.startswith("discovery_"):
             # The link's switches keep the other one as the device has it.
@@ -304,14 +336,21 @@ class Devices:
             link_config, runtime_port = serves.get("config"), serves.get("runtime_port")
         if action in jobs.ADAPTER_ACTIONS:
             discovery = adapter.pop("discovery")
-        lines = jobs.commands(action, version, self.paths, link=link,
+        # Start A next to B, or stop the other running bridges first (UI-4): only instances the probe saw running.
+        running = [i.get("name") for i in (probe.get("bridge") or {}).get("instances") or []
+                   if isinstance(i, dict) and i.get("state") == "active" and i.get("name") != instance]
+        stop = options.get("stop_others") if action in jobs.BRIDGE_ACTIONS else None
+        if stop is not None and (not isinstance(stop, list) or any(n not in running for n in stop)):
+            raise SshError("only a bridge that runs on the device can be stopped: check the device again")
+        lines = jobs.commands(action, version, self.paths, link=link, stop=stop or None,
                               discovery=discovery, purge=options.get("purge") is True,
                               adapters=bool(probe.get("adapters")), **adapter,
-                              link_config=link_config, runtime_port=runtime_port,
+                              link_config=link_config, runtime_port=runtime_port, link_instance=link_instance,
                               instance=instance if action in jobs.BRIDGE_ACTIONS else None,
                               upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)
-        self.store.update(did, job={"id": job_id, "action": action, "version": version})
+        self.store.update(did, job={"id": job_id, "action": action, "version": version,
+                                    "instance": instance if action in jobs.BRIDGE_ACTIONS else None})
         self.running[did] = job_id
         return job_id
 

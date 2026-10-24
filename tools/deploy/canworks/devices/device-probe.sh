@@ -73,14 +73,68 @@ if [ -x "$b/bin/canworks-bridge" ]; then
         case $name in *[!A-Za-z0-9_-]*) continue ;; esac
         state=$("$SYSTEMCTL" is-active "canworks-bridge@$name.service" 2>/dev/null)
         enabled=$("$SYSTEMCTL" is-enabled "canworks-bridge@$name.service" 2>/dev/null)
-        sum=""
+        sum="" files=""
         have sha256sum && sum=$(sha256sum "${d}canworks.json" 2>/dev/null | cut -d' ' -f1)
-        instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s, "sha256": %s}' \
-            "$(js "$name")" "$(js "$state")" "$(js "$enabled")" "$(js "$sum")")"
+        # "name sha256" of every file: the configurator compares them with the files a job uploads.
+        for f in "$d"*; do
+            { [ -f "$f" ] && have sha256sum; } || continue
+            fsum=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
+            [ -z "$fsum" ] || files="$files${files:+, }$(js "$(basename "$f") $fsum")"
+        done
+        instances="$instances${instances:+, }$(printf '{"name": %s, "state": %s, "enabled": %s, "sha256": %s, "files": [%s]}' \
+            "$(js "$name")" "$(js "$state")" "$(js "$enabled")" "$(js "$sum")" "$files")"
     done
     # Without its template unit no instance can start (a partial install).
     bridge=$(printf '{"version": %s, "prefix": %s, "unit": %s, "instances": [%s]}' \
         "$(js "${b_version:-unknown}")" "$(js "${b#"$R"}")" "$(jb "$unit")" "$instances")
+fi
+
+# What each running bridge instance listens on and drives (the Devices page
+# warns before a second one starts on the same port or interface): the Modbus
+# listen address, the diagnostics port and the CAN interfaces of networks
+# that are not simulated. Only these fields, never the config itself (it can
+# hold a token verifier); null without python3.
+bridge_uses=null
+if [ "$bridge" != null ] && have python3; then
+    active=""
+    for d in "$R"/etc/canworks-bridge/*/; do
+        [ -f "${d}canworks.json" ] || continue
+        name=$(basename "$d")
+        case $name in *[!A-Za-z0-9_-]*) continue ;; esac
+        [ "$("$SYSTEMCTL" is-active "canworks-bridge@$name.service" 2>/dev/null)" = active ] && active="$active $d"
+    done
+    # shellcheck disable=SC2086 # one folder per word
+    bridge_uses=$(python3 -c '
+import json, os, sys
+out = {}
+for d in sys.argv[1:]:
+    try:
+        with open(os.path.join(d, "canworks.json")) as f:
+            cfg = json.load(f)
+    except (OSError, ValueError):
+        continue
+    if not isinstance(cfg, dict):
+        continue
+    b = cfg.get("bridge") if isinstance(cfg.get("bridge"), dict) else {}
+    g = cfg.get("diagnostics")
+    nets = cfg.get("networks") if isinstance(cfg.get("networks"), list) else [cfg]
+    ifs = []
+    for n in nets:
+        a = n.get("adapter") if isinstance(n, dict) and isinstance(n.get("adapter"), dict) else {}
+        if isinstance(n, dict) and not a and isinstance(n.get("interface"), str):
+            a = {"interface": n["interface"]}
+        if a.get("simulate") is True:
+            continue
+        for k in ("interface", "device"):
+            if isinstance(a.get(k), str) and a[k] and a[k] not in ifs:
+                ifs.append(a[k])
+    port = g.get("port", 7531) if isinstance(g, dict) else None
+    out[os.path.basename(os.path.normpath(d))] = {
+        "listen": b.get("listen") if isinstance(b.get("listen"), str) else None,
+        "diag_port": port if isinstance(port, int) else None, "interfaces": ifs}
+print(json.dumps(out))
+' $active 2>/dev/null) || bridge_uses=null
+    [ -n "$bridge_uses" ] || bridge_uses=null
 fi
 
 # --- Remote access, CAN, the last install job ----------------------------------------------
@@ -142,8 +196,9 @@ if [ -n "$last" ]; then
     id=$(basename "$last" .log)
     state=$("$SYSTEMCTL" show -p ActiveState --value "canworks-install-$id.service" 2>/dev/null)
     result=$("$SYSTEMCTL" show -p Result --value "canworks-install-$id.service" 2>/dev/null)
-    status=$(sed -n 's/^::canworks-exit //p' "$last" | tail -n 1)
-    step=$(grep '^::canworks-step ' "$last" | tail -n 1 | sed 's/^::canworks-step //')
+    # The job appends " @<epoch>" to these lines: the status alone, the step without it.
+    status=$(sed -n 's/^::canworks-exit \([0-9]*\).*/\1/p' "$last" | tail -n 1)
+    step=$(grep '^::canworks-step ' "$last" | tail -n 1 | sed 's/^::canworks-step //; s/ @[0-9]*$//')
     size=$(wc -c < "$last" | tr -d ' ')
     job=$(printf '{"id": %s, "state": %s, "result": %s, "exit": %s, "step": %s, "log_size": %s}' \
         "$(js "$id")" "$(js "$state")" "$(js "$result")" "$(jn "$status")" "$(js "$step")" "$(jn "$size")")
@@ -154,5 +209,6 @@ printf '{"probe": 1, "os": %s, "arch": %s, "systemd": %s, "disk_free_mb": %s, "m
 printf '"internet": %s, "sudo": %s, ' "${internet:-null}" "$(js "$sudo_mode")"
 printf '"bridge": %s, "link": %s, "link_config": %s, "discovery": %s, "adapters": [%s], ' \
     "$bridge" "$link" "$(js "$link_config")" "$(jb "$discovery")" "$adapters"
+printf '"bridge_uses": %s, ' "$bridge_uses"
 printf '"can": %s, "vcan": %s, "serial": [%s], "j1939_module": %s, "install_job": %s}\n' \
     "$can" "$vcan" "$serial" "$(jb "$j1939")" "$job"

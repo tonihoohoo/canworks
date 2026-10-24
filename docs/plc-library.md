@@ -35,6 +35,8 @@ canworks-deploy library --out .      # writes canworks.stlib
 
 Each `deploy-v` release also carries `canworks.stlib`. Then enable the library in the project (the editor's Library Manager, or `canworks-deploy library --project <project folder>`). A project made with **Install the canworks library in the project** in the configurator's New editor project dialog has it enabled already, and the library is installed into the editor if it is missing or older.
 
+An entry's [bit channels](config.md#bit-channels) are BOOLs of their own in `canworks`, such as `canworks.dio_door`, at the bit the register map shows for them: `canworks_in` reads each from its entry's register, and `canworks_out` ORs each into its entry's word, so an output bit is on when the entry's value or its BOOL sets it. Bits added to a config reach an editor project with its next Save.
+
 ## When the bridge is lost
 
 `canworks.ok` is TRUE while the bridge answers with this program's map and its status counter moves; it goes FALSE within the stale time (3 × the bridge's watchdog, at least 300 ms) after the bridge stops, crashes or loses its network. Gate your outputs and decisions on it. While it is FALSE, the status, state and timeout values (node status bits and state bytes, the master's state and bus state, PDO timeout bits, message status bits) read 0, and the other values keep their last ones, or read 0 when the connection's **Inputs when the bridge is lost** is **Set to 0** (`"inputs_on_loss": "zero"`). `canworks.bus_ok` is TRUE while `canworks.ok` is TRUE and every CAN network of the bridge has its bus up (status byte 7 bit 1 clear): FALSE with a pulled cable, a missing adapter or a bus-off. What the nodes themselves do is in [When the bridge fails](modbus-bridge.md#what-the-nodes-do).
@@ -80,7 +82,7 @@ The bridge has one SDO request block and one control block, so instances take tu
 
 ## The mailboxes
 
-The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). They are off until a program needs them ([below](#with-or-without-the-mailboxes)); the configurator's defaults when they are turned on are one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; a change there needs Update declarations and a new Build ([configurator.md](configurator.md#modbus-bridge)).
+The blocks below talk to the bridge through `bridge.mailboxes` ([modbus-bridge.md](modbus-bridge.md#function-block-mailboxes)). They are off until a program needs them ([below](#with-or-without-the-mailboxes)); the configurator's defaults when they are turned on are one **request mailbox** (any request with an answer: an SDO transfer, a send, a J1939 request, opening a receiver), the **receive mailbox** (frames, J1939 messages and EMCYs for the receiving blocks), 4 **cyclic jobs** (`CAN_SEND_CYCLIC`) and **network info** (`CAN_BUS_INFO`, `J1939_ECU_INFO`). The configurator sets them in the **Function blocks** section of the Modbus bridge page; after a change there, Save the editor project (or run `canworks-deploy --into-project`) and Build again ([configurator.md](configurator.md#modbus-bridge)).
 
 | Block | Needs | Round trips |
 |---|---|---|
@@ -107,7 +109,7 @@ A round trip is about two polls of the bridge: the request goes out with the nex
 
 Every client polls the mailboxes' registers on every cycle, whether or not a block is called, so they are off by default. They come on when a program needs them:
 
-- **OpenPLC**: Check and Save read the editor project's POUs. A declared mailbox block whose part is off is an error in Problems, with **Turn on what the program uses**, which turns on only the parts the declared blocks need. Mailboxes that nothing declares get a warning with **Turn off the mailboxes**.
+- **OpenPLC**: Check and Save read the editor project's POUs. A declared mailbox block whose part is off is an error in Problems, with **Turn on what the program uses**, which turns on only the parts the declared blocks need. Mailboxes that neither the program nor a connection's **canworks blocks** choice needs get a warning with **Turn off the mailboxes**. The scan counts arrays of a block with any bounds and dimensions (integers and the project's constants, `ARRAY[1..N, 0..1] OF CAN_SEND_CYCLIC`), `canworks.CAN_RECEIVE` as `CAN_RECEIVE`, and the blocks inside a function block once per instance of it. Ladder, FBD and other non-ST POU files count each block they name, with an unknown number of instances. When a count cannot be worked out, Turn on what the program uses gives that part the most (16 cyclic jobs) and Problems never offers Turn off.
 - **Another client** (truST, another PLC, Node-RED): turn them on in the **Function blocks** section of the Modbus bridge page ([configurator.md](configurator.md#modbus-bridge)), with only the parts its program uses. Copy as ST call names a missing part.
 - `canworks-diag status` shows how many mailbox operations and receivers the bridge has had since it started, and says when nothing has used them.
 

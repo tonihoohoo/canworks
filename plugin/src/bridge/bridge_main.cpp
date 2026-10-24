@@ -24,6 +24,13 @@ namespace {
 volatile std::sig_atomic_t g_stop = 0;
 
 void on_signal(int) { g_stop = 1; }
+// Lely's io_poll wakes a network's loop from other threads with SIGUSR1 and
+// saves and restores the action around its own no-op handler. With several
+// networks the first poll would save the default action and put it back
+// when its network stops, while the others still signal each other: the
+// process would die. One no-op handler for the whole process, installed
+// before any network starts, is what every poll saves and restores.
+void on_wake(int) {}
 
 void usage(FILE* f) {
   std::fprintf(f,
@@ -84,6 +91,8 @@ int main(int argc, char** argv) {
   sigaction(SIGINT, &sa, nullptr);
   sigaction(SIGTERM, &sa, nullptr);
   std::signal(SIGPIPE, SIG_IGN);
+  sa.sa_handler = on_wake;
+  sigaction(SIGUSR1, &sa, nullptr);
 
   if (wait) {
     struct stat st;

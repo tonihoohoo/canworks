@@ -7,6 +7,7 @@
 #     over its mailboxes against a model of them (mailbox_model.st);
 #   - the generated canworks_in and canworks_out for canworks.json here
 #     (make_programs.py): conversions both ways, canworks.ok, the header;
+#     and for the OpenPLC example with bit channels (test_bits.st);
 #   - the whole generated project (list, programs, configuration with the
 #     three instances in one task) compiles, and so does the PLC link file
 #     --export-modbus-map OUT.st writes for another Modbus PLC, and the
@@ -52,6 +53,7 @@ check() {
 check blocks "$HERE/bridge_model.st" "${LIBRARY[@]}" -o "$WORK/blocks.cpp" --test "$HERE/test_blocks.st"
 check mailboxes "$HERE/mailbox_model.st" "${LIBRARY[@]}" -o "$WORK/mailboxes.cpp" --test "$HERE/test_mailbox_blocks.st"
 check programs "$WORK/programs.st" "${LIBRARY[@]}" -o "$WORK/programs.cpp" --test "$HERE/test_programs.st"
+check bits "$WORK/bits.st" "${LIBRARY[@]}" -o "$WORK/bits.cpp" --test "$HERE/test_bits.st"
 check project "$WORK/project.st" "${LIBRARY[@]}" -o "$WORK/project.cpp"
 check other "$WORK/other.st" "${LIBRARY[@]}" -o "$WORK/other.cpp"
 check example "$WORK/example.st" "${LIBRARY[@]}" -o "$WORK/example.cpp"

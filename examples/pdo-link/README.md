@@ -8,4 +8,4 @@ see it arrive (`%IW102` follows `%IW100`). Node 20 watches node 10's heartbeat i
 in no link and goes PRE-OPERATIONAL on PLC stop.
 
 Open the folder in the configurator (Open…) and look at the PDO links page, or check
-it with `canworks-deploy check examples/pdo-link/canworks.json`.
+it with `canworks-deploy --config examples/pdo-link/canworks.json --check`.

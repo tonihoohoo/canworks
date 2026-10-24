@@ -35,8 +35,9 @@ function int(v, name, lo, hi, family, dflt) {
   return n;
 }
 
-function timeoutOf(p, family) {
-  return int(p.timeout, "timeout", 0, 60000, family, 0) || DEFAULT_TIMEOUT_MS;
+// `dflt`: an SDO job's is the network's SDO timeout from the layout.
+function timeoutOf(p, family, dflt) {
+  return int(p.timeout, "timeout", 0, 60000, family, 0) || dflt || DEFAULT_TIMEOUT_MS;
 }
 
 function net(b, p, kind, family) {
@@ -104,7 +105,7 @@ async function sdo(b, p) {
   const size = numeric ? int(p.size, "size", 1, 8, F, 4) : 0;
   if (type === "real" && size !== 4 && size !== 8) throw fail(F, 6, "a real is 4 or 8 bytes");
   if (numeric && ![1, 2, 4, 8].includes(size)) throw fail(F, 6, "size must be 1, 2, 4 or 8");
-  const timeout = timeoutOf(p, F);
+  const timeout = timeoutOf(p, F, b.lay.sdoTimeoutMs);
   let data = null;
   if (write) {
     if (p.value === undefined) throw fail(F, 6, "a write needs a value");

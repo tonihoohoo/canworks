@@ -64,6 +64,8 @@ class SdoJob : public MbJob {
     }
     return true;
   }
+  // Still queued or waiting behind another transfer: dropped, never sent.
+  void cancel() override { canopen_plugin::PlcRequests::instance().cancel(handle_); }
 
  private:
   uint32_t handle_;
@@ -81,6 +83,8 @@ class CanSendJob : public MbJob {
     out.error = rc == 1 ? 0 : static_cast<uint8_t>(err ? err : uint16_t(CANWORKS_CAN_ERR_CANCELLED));
     return true;
   }
+  // Still queued: dropped, never sent.
+  void cancel() override { can_api()->tx_cancel(handle_); }
 
  private:
   uint32_t handle_;

@@ -30,6 +30,62 @@ class Scan(unittest.TestCase):
             "PROGRAM canworks_in\n  VAR\n    s : CAN_SEND;\n  END_VAR\nEND_PROGRAM\n")
         self.assertEqual(found, {"CAN_BUS_INFO": {"pump": 1}})
 
+    def test_arrays_namespaces_and_function_blocks(self):
+        # canopen-configurator "Mailbox detection in programs": named and 2-D
+        # bounds, canworks.X, blocks in a user FB once per instance.
+        found = mailboxuse.scan_text(
+            "FUNCTION_BLOCK Axis\n  VAR\n    job : canworks.CAN_SEND_CYCLIC;\n  END_VAR\nEND_FUNCTION_BLOCK\n"
+            "PROGRAM main\n  VAR CONSTANT\n    N : INT := 3;\n  END_VAR\n  VAR\n"
+            "    rx : ARRAY[1..N] OF CAN_RECEIVE;\n    cy : ARRAY[0..1, 0..1] OF CAN_SEND_CYCLIC;\n"
+            "    a : ARRAY[0..7] OF Axis;\n  END_VAR\nEND_PROGRAM\n")
+        self.assertEqual(found, {"CAN_RECEIVE": {"main": 3}, "CAN_SEND_CYCLIC": {"main": 4, "Axis": 8}})
+        self.assertEqual(mailboxuse.parts_needed(found), {"request": 1, "receive": 1, "cyclic": 12})
+
+    def test_nested_function_blocks_and_expressions(self):
+        found = mailboxuse.scan_text(
+            "VAR_GLOBAL CONSTANT\n  M : INT := 2;\nEND_VAR\n"
+            "FUNCTION_BLOCK Inner\n  VAR\n    s : ARRAY[0..M-1] OF CAN_SEND_CYCLIC;\n  END_VAR\nEND_FUNCTION_BLOCK\n"
+            "FUNCTION_BLOCK Outer\n  VAR\n    i1, i2 : Inner;\n  END_VAR\nEND_FUNCTION_BLOCK\n"
+            "PROGRAM main\n  VAR\n    o : ARRAY[1..2] OF Outer;\n  END_VAR\nEND_PROGRAM\n")
+        self.assertEqual(found, {"CAN_SEND_CYCLIC": {"Inner": 8}})
+
+    def test_unknown_count(self):
+        # A bound the scan cannot work out: the most for that part.
+        found = mailboxuse.scan_text(
+            "PROGRAM main\n  VAR\n    cy : ARRAY[0..SIZEOF(x)] OF CAN_SEND_CYCLIC;\n"
+            "    rx : ARRAY[0..K] OF CAN_RECEIVE;\n  END_VAR\nEND_PROGRAM\n")
+        self.assertEqual(found, {"CAN_SEND_CYCLIC": {"main": None}, "CAN_RECEIVE": {"main": None}})
+        self.assertEqual(mailboxuse.parts_needed(found), {"request": 1, "receive": 1, "cyclic": 16})
+        self.assertIn("main declares CAN_SEND_CYCLIC",
+                      mailboxuse.describe("CAN_SEND_CYCLIC", found["CAN_SEND_CYCLIC"], ["cyclic"]))
+
+    def test_other_pou_files(self):
+        # Ladder, FBD and the editor's JSON POUs: the block names, count unknown.
+        d = tmpdir(self)
+        os.makedirs(os.path.join(d, "pous", "programs"))
+        os.makedirs(os.path.join(d, "pous", "function-blocks"))
+        with open(os.path.join(d, "pous", "programs", "main.json"), "w", encoding="utf-8") as f:
+            json.dump({"name": "main", "body": {"rungs": [{"nodes": [
+                {"type": "block", "data": {"variant": {"name": "CAN_RECEIVE"}}},
+                {"type": "block", "data": {"variant": {"name": "Axis"}}}]}]}}, f)
+        with open(os.path.join(d, "pous", "programs", "aux.fbd"), "w", encoding="utf-8") as f:
+            f.write('<block typeName="canworks.CAN_BUS_INFO" instanceName="bi"/>\n')
+        with open(os.path.join(d, "pous", "function-blocks", "Axis.st"), "w", encoding="utf-8") as f:
+            f.write("FUNCTION_BLOCK Axis\nVAR\n job : CAN_SEND_CYCLIC;\nEND_VAR\nEND_FUNCTION_BLOCK\n")
+        self.assertEqual(mailboxuse.scan_project(d), {"CAN_RECEIVE": {"main": None}, "CAN_BUS_INFO": {"aux": None},
+                                                      "CAN_SEND_CYCLIC": {"Axis": None}})
+
+    def test_constants_from_other_files(self):
+        d = tmpdir(self)
+        os.makedirs(os.path.join(d, "pous", "programs"))
+        with open(os.path.join(d, "pous", "programs", "main.st"), "w", encoding="utf-8") as f:
+            f.write("PROGRAM main\nVAR\n cy : ARRAY[1..JOBS] OF CAN_SEND_CYCLIC;\nEND_VAR\nEND_PROGRAM\n")
+        with open(os.path.join(d, "project.json"), "w", encoding="utf-8") as f:
+            json.dump({"data": {"globalVariableLists": [{"name": "g", "variables": [
+                {"name": "JOBS", "class": "constant", "type": {"definition": "base-type", "value": "INT"},
+                 "initialValue": "6"}]}]}}, f)
+        self.assertEqual(mailboxuse.scan_project(d), {"CAN_SEND_CYCLIC": {"main": 6}})
+
     def test_project(self):
         d = tmpdir(self)
         os.makedirs(os.path.join(d, "pous", "programs"))
@@ -69,6 +125,10 @@ class Parts(unittest.TestCase):
                          dict(current, receive=True))
         self.assertEqual(mailboxuse.mailboxes_for(need), {"requests": 1, "receive": True, "cyclic_jobs": 0,
                                                           "network_info": False})
+
+    def test_opening_needs_a_request_mailbox(self):
+        self.assertEqual(mailboxuse.mailboxes_for({"receive": 1}, {"requests": 0, "receive": False})["requests"], 1)
+        self.assertEqual(mailboxuse.mailboxes_for({"cyclic": 4})["requests"], 1)
 
     def test_choices(self):
         self.assertEqual(mailboxuse.choice_parts("none"), {})

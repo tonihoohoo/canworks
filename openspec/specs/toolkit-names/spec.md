@@ -16,8 +16,8 @@ The project SHALL be published as the repository `tonihoohoo/canworks`. The PC t
 The PC tools SHALL install `canworks-deploy`, `canworks-config`, `canworks-diag` and `canworks-local-runtime`, with the arguments and behaviour the `openplc-canopen-*` commands had, and SHALL NOT install any `openplc-canopen-*` command.
 
 #### Scenario: Diagnostics command
-- **WHEN** a user runs `canworks-diag status --host plc.local`
-- **THEN** the output is what `openplc-canopen-diag status --host plc.local` printed with tools 0.40.0
+- **WHEN** a user runs `canworks-diag --runtime plc.local status`
+- **THEN** the output is what `openplc-canopen-diag --runtime plc.local status` printed with tools 0.40.0
 
 #### Scenario: Old name gone
 - **WHEN** a user installs tools 0.42.0 into a fresh environment and runs `openplc-canopen-diag`

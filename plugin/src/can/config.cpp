@@ -3336,6 +3336,10 @@ class Parser {
     }
     if (get_uint(o, "cyclic_jobs", mw, false, kMaxCyclicJobs, v)) c.mb_cyclic_jobs = (unsigned)v;
     get_bool(o, "network_info", mw, c.mb_network_info);
+    // RX_OPEN and CYCLIC_SET go through a request mailbox.
+    if (!c.mb_requests && (c.mb_receive || c.mb_cyclic_jobs))
+      error(mw, "field 'requests' is 0, but opening a receiver or a cyclic job needs a request mailbox: set "
+                "'requests' to at least 1, or turn 'receive' off and 'cyclic_jobs' to 0");
     c.mb_info_networks =
         c.mb_network_info ? (unsigned)std::min<size_t>(set.networks.size(), kMaxInfoNetworks) : 0;
     for (const char* key : {"input_location", "output_location"})

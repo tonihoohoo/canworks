@@ -280,6 +280,16 @@ class Package(unittest.TestCase):
             pkg = json.loads(tar.extractfile("package/package.json").read())
         self.assertEqual(pkg["version"], __version__)
 
+    def test_editor_defaults_and_help(self):
+        # NODERED-10: the bridge node's port is 502 like the runtime's; the emcy help lists a receiver's errors.
+        with open(os.path.join(nodered.PACKAGE_DIR, "nodes", "canworks.html"), encoding="utf-8") as f:
+            html = f.read()
+        self.assertIn("port: { value: 502,", html)
+        emcy = html[html.index('data-help-name="canworks-emcy"'):]
+        emcy = emcy[:emcy.index("</script>")]
+        self.assertNotIn("7 too long", emcy)
+        self.assertIn("5 no free receiver", emcy)
+
     def test_layout_is_fresh(self):
         with open(os.path.join(nodered.PACKAGE_DIR, "lib", "layout.js"), encoding="utf-8") as f:
             self.assertEqual(f.read(), nodered.layout_js(),

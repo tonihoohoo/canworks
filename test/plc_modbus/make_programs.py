@@ -16,6 +16,9 @@ here, through the deploy tool's openplcmodbus module:
                  the way project.st has it, with main and a configuration
     example.st   examples/openplc-modbus: its list and programs with its
                  main.st, as project.st
+    bits.st      the same example without mailboxes and with bit channels
+                 on a TPDO and an RPDO entry, canworks_in and canworks_out
+                 as function blocks as in programs.st
 
 The raw signals have no REAL type, so four of them are declared REAL and
 LREAL here to test those conversions.
@@ -140,6 +143,20 @@ def main():
                 "    PROGRAM main_instance WITH main_task : main;\n"
                 "    PROGRAM out_instance WITH main_task : canworks_out;\n"
                 "  END_RESOURCE\nEND_CONFIGURATION\n")
+
+    # Bit channels on the bridge (canopen-pdo-io): BOOLs at their entry's bits.
+    bits_cfg = json.loads(json.dumps(ex_cfg))
+    del bits_cfg["bridge"]["mailboxes"]
+    rtd, dio = bits_cfg["networks"][0]["nodes"][:2]
+    rtd["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 9, "name": "hi"}]
+    dio["tx_pdos"][0]["entries"][0]["bits"] = [{"bit": 0, "name": "first_bit"}, {"bit": 3}]
+    dio["rx_pdos"][0]["entries"][0]["bits"] = [{"bit": 2, "name": "lamp"}]
+    bits_decls = editorproject.declarations(bits_cfg, ex_path)
+    bits_in, bits_out = openplcmodbus.programs(bits_cfg, bits_decls)
+    with open(os.path.join(out, "bits.st"), "w", encoding="utf-8") as f:
+        f.write(struct(openplcmodbus.global_list(bits_decls)))
+        f.write(as_block(bits_in, "canworks_in", "VAR_OUTPUT"))
+        f.write(as_block(bits_out, "canworks_out", "VAR_INPUT"))
 
 
 if __name__ == "__main__":

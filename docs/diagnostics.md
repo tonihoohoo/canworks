@@ -165,10 +165,9 @@ canworks-diag --sim 127.0.0.1 sim test --scenario sensor-break --junit results.x
 | `identity` | `[--vendor-id N] [--product-code N] [--revision-number N] [--serial-number N]`, at least one |
 | `device-type` | `VALUE` |
 | `forget-node-id` | |
-| `drive-input` | `--blocked`, `--positive-limit`, `--negative-limit`, `--home-switch` set an input, `--no-blocked` ... clear it; inputs not named stay as they are |
 | `json` | the fault's JSON, e.g. `'{"heartbeat": "stop"}'` |
 
-`clear NODE KIND` takes the same names (`emcy`, `heartbeat`, `power`, `sdo-abort`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `identity`, `device-type`, `drive-input`) or `all`; `--object OBJ` clears only that object's `sdo-abort` rule and `--tpdo N` only that TPDO's `tpdo-stop`.
+`clear NODE KIND` takes the same names (`emcy`, `heartbeat`, `power`, `sdo-abort`, `sdo-delay`, `refuse-write-operational`, `tpdo-stop`, `identity`, `device-type`) or `all`; `--object OBJ` clears only that object's `sdo-abort` rule and `--tpdo N` only that TPDO's `tpdo-stop`.
 
 `sim test` runs scenarios as tests of a PLC program: each `--scenario NAME` (repeatable), or every scenario with `--all`, one after another (`--parallel`: together). It starts each with `sim_scenario_start`, polls `sim_scenario_list` until it passed, failed or was stopped, and stops a scenario that still runs after `--timeout` seconds in all (default 300). It prints one line per scenario (`PASS`, `FAIL`, `TIMEOUT` or `NOT RUN`, the time, and the scenario's message) and a summary, writes a JUnit XML report with `--junit FILE` (one test case per scenario; failed, stopped and timed-out ones have a `failure`), and exits 0 when every scenario passed, 1 when one did not, and 2 on a usage error, an unknown scenario or when it cannot connect or start a scenario.
 

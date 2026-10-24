@@ -103,7 +103,7 @@ class Files(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("node 2 (pingpong): 0x4000:0 is written by the master (RPDO 1)", err)
         self.assertIn("reference cycle", err)
-        self.assertIn("nothing was uploaded", err)
+        self.assertNotIn("nothing was uploaded", err)  # --check never uploads
 
     def test_extra_device_eds_with_the_name_of_another(self):
         with open(self.sim, encoding="utf-8") as f:

@@ -93,6 +93,10 @@ typedef struct {
   void (*cyc_stop)(uint32_t handle);
   /* 0 with *info filled, or 2 with *error_id. */
   int (*bus_info)(uint8_t network, canworks_can_bus_info* info, uint16_t* error_id);
+  /* Gives up on a tx_send frame: still queued, it is dropped and never sent;
+   * already written, its confirmation is discarded. The handle is invalid
+   * after it. */
+  void (*tx_cancel)(uint32_t handle);
 } canworks_can_api_v1;
 
 /* The table for `version`, or NULL when canworks does not offer it. */

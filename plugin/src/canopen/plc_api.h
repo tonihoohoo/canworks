@@ -52,6 +52,14 @@ class PlcRequests {
   }
   int poll(uint32_t handle, canopen_plc_result* res, uint8_t* data, uint32_t cap, clock::time_point now);
 
+  // The bridge's mailboxes: the caller gives up on `handle`. A request still
+  // queued, or taken by its network but not yet on the bus (waiting behind
+  // another transfer to the node), is dropped and never sent; one already
+  // running finishes and its result is discarded.
+  void cancel(uint32_t handle);
+  // Bus thread: whether a taken request is still wanted (not cancelled).
+  bool wanted(uint32_t handle);
+
   // Plugin lifecycle: open() when CANopen runs, with the networks that take
   // SDO requests as bits (bit i = network i in the config: the CANopen master
   // networks; a request naming any other ends at once with

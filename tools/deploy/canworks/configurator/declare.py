@@ -118,10 +118,24 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
     A PDO entry's `name` replaces the EDS part of its name. Each located
     bit channel of an entry adds a BOOL right after the entry (`bit` holds
     its number), named `<node>_<name>`, or `<node>_<entry part>_bit<n>`
-    without a name. With `unlocated` (the CODESYS export) a PDO entry
+    without a name; in a bridge config every bit channel of a located entry
+    is declared, at the bit of the entry's location that the register map
+    shows. With `unlocated` (the CODESYS export) a PDO entry
     and a bit channel without a location are named too, with location
     None."""
     out, names = [], set()
+    # In a bridge config a bit channel has no location of its own: it is the
+    # bit of its entry's location that its map row shows (canopen-pdo-io "Bit
+    # channels in the generated programs on the bridge").
+    bridge = isinstance(cfg, dict) and isinstance(cfg.get("bridge"), dict)
+
+    def bridge_bit(entry_loc, bit):
+        from .. import modbusmap
+        nbytes = modbusmap.SIZE_BYTES.get(entry_loc.size, 0) if entry_loc.size != "X" else 0
+        if not bridge or not nbytes or bit >= nbytes * 8:
+            return None
+        byte = modbusmap.bit_byte(entry_loc.index, nbytes, bit, modbusmap.word_order_of(cfg))
+        return "%%%sX%d.%d" % (entry_loc.area, byte, bit % 8)
 
     def unique(base):
         name, n = base, 2
@@ -164,7 +178,8 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
                         located = parse_location(e.get("iec_location"))
                         bits = [(m, b) for m, b in enumerate(e.get("bits") if isinstance(e.get("bits"), list) else [])
                                 if isinstance(b, dict) and isinstance(b.get("bit"), int)
-                                and (unlocated or parse_location(b.get("iec_location")))]
+                                and (unlocated or parse_location(b.get("iec_location"))
+                                     or (located and bridge_bit(located, b["bit"])))]
                         if not (located or unlocated or bits) or e.get("type") not in IEC_TYPE:
                             continue
                         index = e["index"] if isinstance(e["index"], int) else int(str(e["index"]), 0)
@@ -190,7 +205,8 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
                             bpath = path[: -len("iec_location")] + "bits[%d].iec_location" % m
                             bname = unique("%s_%s" % (prefix, identifier(b["name"]) if b.get("name")
                                                       else bit_name(label, b["bit"])))
-                            bloc = b.get("iec_location") if parse_location(b.get("iec_location")) else None
+                            bloc = b.get("iec_location") if parse_location(b.get("iec_location")) else (
+                                bridge_bit(located, b["bit"]) if located else None)
                             out.append({"name": bname, "entry_name": bname[len(prefix) + 1:],
                                         "location": bloc.strip() if bloc else None, "type": "BOOL",
                                         "path": bpath, "declared_as": declared.get(bpath), "node": i, "kind": "pdo",
@@ -380,7 +396,7 @@ def editor_block(decls, indent="  "):
         for d in decls:
             if d.get("location"):
                 line = "%s  %s : %s AT %s;" % (indent, d["name"].ljust(width), d["type"], d["location"])
-            else:  # a plain variable (a CiA 402 axis and its bridge)
+            else:  # a plain variable (a PDO entry or bit channel without a location)
                 line = "%s  %s : %s;" % (indent, d["name"].ljust(width), d["type"])
             text = comment_text(d.get("description"))
             if text:

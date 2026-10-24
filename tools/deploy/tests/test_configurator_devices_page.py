@@ -184,6 +184,10 @@ class DevicesPage(OnlineBase):
         self.assertEqual(rows[0][:3], ["bridge", "0.93.4", "this project's config as rtd-monitor"])
         self.assertEqual(pg.inner_text("[data-devices=start]"), "Update 0.93.4 → 0.98.0")
         self.assertIn("internet ok", pg.inner_text("[data-devices=header]"))
+        # The device has neither the remote link nor the advertisement: the update keeps them off, unfolded.
+        self.assertTrue(pg.eval_on_selector("[data-devices=options]", "d => d.open"))
+        self.assertFalse(pg.is_checked("[data-devices-option=link]"))
+        self.assertFalse(pg.is_checked("[data-devices-option=discovery]"))
 
         os.environ["FAKE_BUILD_S"] = "2"
         self.addCleanup(os.environ.pop, "FAKE_BUILD_S", None)
@@ -209,6 +213,7 @@ class DevicesPage(OnlineBase):
         pg.click("[data-devices=log] summary")
         # the log text arrives after the click (a busy machine shows that)
         pg.wait_for_selector("[data-devices=log] pre:has-text('args: --version 0.98.0 --instance rtd-monitor --config')")
+        self.assertRegex(pg.inner_text("[data-devices=log] pre"), r"(?m)--remove-config-dir --without-discovery$")
         pg.wait_for_selector("[data-devices=up-to-date]")
         self.assertIn("0.98.0", pg.inner_text('[data-devices=rows] tr[data-part="bridge"]'))
         # The status bar drops the job at its next look (a poll in flight may still list it).
@@ -441,6 +446,81 @@ class DevicesPage(OnlineBase):
             return r.right > window.innerWidth;
         }).map((b) => b.textContent)""")
         self.assertEqual(cut, [])
+
+    def test_another_projects_bridge_runs(self):
+        # UI-4, UI-5, UI-8, UI-12, UI-15: vp2 runs on the same port and
+        # interface; Update names it and stops it first; the finished job keeps
+        # naming its own instance in another project; the page at 800 px.
+        pg = self.page
+        self.put("etc/canworks-bridge/vp2/canworks.json", json.dumps({
+            "schema_version": 2, "bridge": {"listen": "127.0.0.1:1502"},
+            "networks": [{"name": "io", "adapter": {"interface": "vcan0"}, "nodes": []}]}))
+        with open(os.path.join(self.device.units, "canworks-bridge@vp2.service"), "w") as f:
+            f.write("active\n")
+        self.write_config({"token_verifier": diag.token_verifier(TOKEN)})
+        self.add_device()
+        self.answer("cancel")  # no key login
+        pg.wait_for_selector("[data-devices=start]:has-text('Update 0.93.4 → 0.98.0')")
+        pg.click("[data-devices=start]")
+        pg.wait_for_selector("#modal[open] [data-devices=sudo]")
+        self.assertIn("The bridge vp2 runs on this device", pg.inner_text("#modal-extra"))
+        clash = pg.eval_on_selector_all("#modal [data-devices=clash]", "ns => ns.map((n) => n.innerText)")
+        self.assertEqual(len(clash), 2, clash)
+        self.assertIn("vp2 listens on port 1502 too", clash[0])
+        self.assertIn("vp2 drives vcan0 too", clash[1])
+        self.assertEqual(pg.inner_text('#modal button[data-value="stop"]'), "Stop vp2 and start rtd-monitor")
+        self.assertIn("primary", pg.get_attribute('#modal button[data-value="stop"]', "class"))
+        self.assertEqual(pg.inner_text('#modal button[data-value="next"]'), "Start next to vp2")
+        # The sudo field: its label above the input, the hint below.
+        box = pg.evaluate("""() => { const f = document.querySelector('#modal .devices-sudo');
+            const r = (n) => n.getBoundingClientRect();
+            return [r(f.querySelector('label')).top, r(f.querySelector('input')).top, r(f.querySelector('input')).bottom,
+                    r(f.querySelector('.hint')).top]; }""")
+        self.assertLess(box[0] + 4, box[1])
+        self.assertLessEqual(box[2], box[3])
+        self.answer("stop", {"[data-devices=sudo]": SUDO_PW})
+        pg.wait_for_selector("[data-devices=done]", timeout=20000)
+        self.assertIn("The bridge runs this project's saved config as rtd-monitor.", pg.inner_text("[data-devices=done]"))
+        with open(os.path.join(self.device.units, "canworks-bridge@vp2.service")) as f:
+            self.assertEqual(f.read().strip(), "inactive")
+        pg.wait_for_selector("[data-devices=up-to-date]")
+        self.assertRegex(pg.inner_text("[data-devices=log] summary"), r"^Log \(\d+ lines?\)$")
+
+        # The page at 800 px: the list above the details, the user name in its case.
+        pg.set_viewport_size({"width": 800, "height": 860})
+        pg.wait_for_timeout(100)
+        tops = pg.evaluate("""() => [document.querySelector('.devices-pane').getBoundingClientRect().bottom,
+            document.querySelector('.devices-page').getBoundingClientRect().top]""")
+        self.assertLessEqual(tops[0], tops[1])
+        self.assertTrue(pg.inner_text(".devices-page > .devices-head h3").startswith("pi@"))
+        split = pg.evaluate("""() => [...document.querySelectorAll('table.devices-rows td')].filter((td) => {
+            const words = td.innerText.split(/\\s+/).filter(Boolean);
+            return words.some((w) => { const s = document.createElement('span'); s.textContent = w;
+                s.style.whiteSpace = 'nowrap'; td.append(s); const wide = s.offsetWidth > td.clientWidth; s.remove(); return wide; });
+        }).map((td) => td.innerText)""")
+        self.assertEqual(split, [])
+        self.assertEqual(pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), True)
+        pg.click("[data-devices=menu] summary")
+        self.assertEqual(pg.inner_text("[data-devices=remove-all]"), "Uninstall canworks from the device…")
+        self.assertEqual(pg.inner_text("[data-devices=remove]"), "Forget this device")
+        pg.click("[data-devices=menu] summary")
+
+        # Another project opened: the finished job still names rtd-monitor.
+        other = os.path.join(self.dir, "om2")
+        shutil.copytree(self.project, other)
+        header_action(pg, "#btn-close")
+        pg.wait_for_selector("#start:not([hidden])")
+        # In the same tab, as Close and Open do (no reload: the page keeps its jobs).
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", other)
+        pg.click("[data-folder=dialog] [data-value=use]")
+        pg.wait_for_selector("#editor:not([hidden])")
+        pg.click('#ws button[data-ws="devices"]')
+        pg.wait_for_selector(".devices-list [data-device]")
+        pg.click(".devices-list [data-device]")
+        pg.wait_for_selector("[data-devices=done]")
+        self.assertIn("The bridge runs the saved config of rtd-monitor.", pg.inner_text("[data-devices=done]"))
+        self.assertEqual(pg.locator("[data-devices=open-commission]").count(), 0)
 
     def test_pc_tools_older_than_the_device(self):
         # A newer minor on the device: a note with Update PC tools…, which

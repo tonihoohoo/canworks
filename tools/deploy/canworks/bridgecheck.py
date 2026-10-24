@@ -174,6 +174,7 @@ def _connections(b, w, err, warn, link):
     openplc = 0
     owner = None  # the OpenPLC connection's label
     users = []  # (index, label) of the connections with canworks blocks
+    writers = []  # (index, label, kind) of the connections that write
     listen = listen_host(b.get("listen"))
     for i, c in enumerate(items):
         cw = "%s.connections[%d]" % (w, i)
@@ -198,6 +199,8 @@ def _connections(b, w, err, warn, link):
         address = c.get("address")
         if "address" not in c:
             err(cw, "missing required field 'address' (the client's IP address)", [cw + ".address"])
+        elif address == "":
+            err(cw, "Give the address of %s: the IP address it connects from" % label, [cw + ".address"])
         elif not isinstance(address, str) or not _valid_address(address):
             err(cw, "field 'address' must be an IPv4 or IPv6 address, not %s" % _show(address), [cw + ".address"])
         elif listen and _is_loopback(listen) and not _is_loopback(address):
@@ -205,6 +208,8 @@ def _connections(b, w, err, warn, link):
                 % (label, address, b.get("listen")), [w + ".listen", cw + ".address"])
         if "writes" in c and not isinstance(c["writes"], bool):
             err(cw, "field 'writes' must be true or false", [cw + ".writes"])
+        elif c.get("writes") is True:
+            writers.append((i, label, kind))
         if "map_hash" in c and not (isinstance(c["map_hash"], str) and len(c["map_hash"]) == 10
                                     and c["map_hash"].startswith("0x")
                                     and all(ch in "0123456789abcdef" for ch in c["map_hash"][2:])):
@@ -258,9 +263,18 @@ def _connections(b, w, err, warn, link):
             if b.get("word_order") == "high_first":
                 err(w, "field 'word_order' must be \"low_first\" with an OpenPLC connection: OpenPLC's Modbus master "
                        "reads 32- and 64-bit values lowest word first", [w + ".word_order"])
-        elif link and c.get("writes") is True and kind in ("nodered", "hmi"):
-            warn(cw, "%s writes, but with the PLC link only the PLC writes outputs and mailboxes: untick Writes"
-                 % label, [cw + ".writes"])
+    # With the PLC link one PLC writes the whole output image and the header:
+    # the OpenPLC connection, else the first truST or Other PLC that writes.
+    # Every other writer gets the warning, whatever its kind.
+    if link and writers:
+        plc = [x for x in writers if x[2] == "openplc"] or [x for x in writers if x[2] in ("trust", "plc")]
+        first = plc[0] if plc else None
+        for i, label, kind in writers:
+            if first is not None and i == first[0]:
+                continue
+            why = " (%s does)" % first[1] if first else ""
+            warn("%s.connections[%d]" % (w, i), "%s writes, but with the PLC link only the PLC writes outputs and "
+                 "mailboxes%s: untick Writes" % (label, why), ["%s.connections[%d].writes" % (w, i)])
     # One program owns the mailboxes (mailboxes-on-demand "One program owns
     # the mailboxes"): the request words, tickets and receivers assume one client.
     if owner is not None:
@@ -524,6 +538,11 @@ def _mailboxes(b, w, networks, err):
             counts[key] = o[key]
         else:
             err(mw, "field '%s' must be true or false" % key, [mw + "." + key])
+    # RX_OPEN and CYCLIC_SET go through a request mailbox (parse_mailboxes).
+    full = dict(mailboxlayout.DEFAULTS, **counts)
+    if not full["requests"] and (full["receive"] or full["cyclic_jobs"]):
+        err(mw, "field 'requests' is 0, but opening a receiver or a cyclic job needs a request mailbox: set "
+                "'requests' to at least 1, or turn 'receive' off and 'cyclic_jobs' to 0", [mw + ".requests"])
     for key in ("input_location", "output_location"):
         if key not in o:
             err(mw, "missing required field '%s' (where the mailbox area starts; Pack for Modbus in the configurator "

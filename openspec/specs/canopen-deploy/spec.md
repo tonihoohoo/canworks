@@ -308,3 +308,10 @@ For `--codesys-import`, CODESYS SHALL come from `--codesys-exe`, else the newest
 #### Scenario: Removed nodes kept by default
 - **WHEN** `canworks-deploy --codesys-import` runs on a config whose network's `codesys.managed` has node 7 that is no longer in the config
 - **THEN** node 7 stays in the project and the report says it was kept
+
+### Requirement: Upload wording only for uploads
+A failed command that never uploads (an export, `--check`, `--check-only`) SHALL NOT end with "nothing was uploaded".
+
+#### Scenario: Refused truST export
+- **WHEN** `canworks-deploy --export-plcopen DIR --for trust` is refused
+- **THEN** the output has the reason and no "nothing was uploaded" line

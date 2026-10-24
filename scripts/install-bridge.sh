@@ -312,9 +312,16 @@ ssh_install() {
         fi
         remote_args+=(--instance "$INSTANCE" --config "$up" --remove-config-dir)
     fi
-    # The device runs this script as of the release it installs, pinned to it.
-    remote="curl -LsSf $(printf '%q' "$RAW/deploy-v$VERSION/scripts/install-bridge.sh") | sudo bash -s --"
-    for a in "${remote_args[@]}"; do remote+=" $(printf '%q' "$a")"; done
+    # The device runs this script as of the release it installs, pinned to it,
+    # downloaded to a file first: piped into bash, a failed download ended with 0.
+    # shellcheck disable=SC2016 # $f and $s are the device's
+    {
+        remote='f=$(mktemp) && { curl -fLsS -o "$f" '"$(printf '%q' "$RAW/deploy-v$VERSION/scripts/install-bridge.sh")"
+        remote+=' || { s=$?; rm -f "$f"; echo could not download install-bridge.sh '"$(printf '%q' "$VERSION")"' >&2; exit $s; }; }'
+        remote+=' && sudo bash "$f"'
+        for a in "${remote_args[@]}"; do remote+=" $(printf '%q' "$a")"; done
+        remote+='; s=$?; rm -f "$f"; exit $s'
+    }
     if [ "$DRY_RUN" -eq 1 ]; then
         echo "would run: ssh -t ${ssh_opts[*]+"${ssh_opts[*]} "}$SSH_TARGET \"$remote\""
         return 0

@@ -46,6 +46,13 @@ bool ByteImage::client_wrote(size_t offset, size_t n) const {
   return true;
 }
 
+void ByteImage::watch_reads(size_t offset, size_t n) {
+  std::lock_guard<std::mutex> lock(mu_);
+  watch_at_ = offset;
+  watch_n_ = n;
+  watched_reads_.store(0, std::memory_order_relaxed);
+}
+
 void ByteImage::Access::mark_written(size_t offset, size_t n) {
   for (size_t i = offset; i < offset + n && i < img_.out_written_.size(); ++i) img_.out_written_[i] = true;
 }
