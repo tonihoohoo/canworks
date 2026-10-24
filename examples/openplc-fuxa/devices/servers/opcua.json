@@ -1,0 +1,681 @@
+{
+  "name": "opcua",
+  "protocol": "opcua",
+  "opcuaServerConfig": {
+    "server": {
+      "enabled": true,
+      "name": "OpenPLC OPC UA Server",
+      "applicationUri": "urn:openplc:opcua:server",
+      "productUri": "urn:openplc:runtime",
+      "bindAddress": "0.0.0.0",
+      "port": 4840,
+      "endpointPath": "/openplc/opcua"
+    },
+    "securityProfiles": [
+      {
+        "id": "default-insecure",
+        "name": "insecure",
+        "enabled": true,
+        "securityPolicy": "None",
+        "securityMode": "None",
+        "authMethods": [
+          "Anonymous"
+        ],
+        "anonymousRole": "operator"
+      }
+    ],
+    "security": {
+      "serverCertificateStrategy": "auto_self_signed",
+      "serverCertificateCustom": null,
+      "serverPrivateKeyCustom": null,
+      "trustedClientCertificates": []
+    },
+    "users": [],
+    "cycleTimeMs": 100,
+    "addressSpace": {
+      "namespaceUri": "urn:openplc:opcua:namespace",
+      "nodes": [
+        {
+          "id": "5d0f910c-e662-5da3-9ced-33213de855c4",
+          "pouName": "main",
+          "variablePath": "temp1",
+          "variableType": "REAL",
+          "nodeId": "PLC.main.temp1",
+          "browseName": "temp1",
+          "displayName": "temp1",
+          "description": "Temperature 1 in °C",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "5dc5d81f-3d9b-5534-91f8-08c4699391ac",
+          "pouName": "main",
+          "variablePath": "temp2",
+          "variableType": "REAL",
+          "nodeId": "PLC.main.temp2",
+          "browseName": "temp2",
+          "displayName": "temp2",
+          "description": "Temperature 2 in °C",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "dfe5f4ea-89e1-59b3-b19e-4db811a9144d",
+          "pouName": "main",
+          "variablePath": "limit",
+          "variableType": "REAL",
+          "nodeId": "PLC.main.limit",
+          "browseName": "limit",
+          "displayName": "limit",
+          "description": "Alarm limit for temperature 1 in °C",
+          "permissions": {
+            "viewer": "r",
+            "operator": "rw",
+            "engineer": "rw"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "80f16294-82ea-55a1-8889-7aee6819f570",
+          "pouName": "main",
+          "variablePath": "ack",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.ack",
+          "browseName": "ack",
+          "displayName": "ack",
+          "description": "Acknowledge the alarm (a command)",
+          "permissions": {
+            "viewer": "r",
+            "operator": "rw",
+            "engineer": "rw"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "2c9741ae-a68a-527a-b2ca-d36ebda32c80",
+          "pouName": "main",
+          "variablePath": "run",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.run",
+          "browseName": "run",
+          "displayName": "run",
+          "description": "Running light on",
+          "permissions": {
+            "viewer": "r",
+            "operator": "rw",
+            "engineer": "rw"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "4548d2e3-30a4-56f8-a934-9976843a9ec2",
+          "pouName": "main",
+          "variablePath": "alarm",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.alarm",
+          "browseName": "alarm",
+          "displayName": "alarm",
+          "description": "Temperature 1 over the limit, held until Ack",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "cca4578f-deaa-5985-9f59-440f96fcdf13",
+          "pouName": "main",
+          "variablePath": "light_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.light_ok",
+          "browseName": "light_ok",
+          "displayName": "light_ok",
+          "description": "The running light comes back on the inputs",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "5d53799b-4025-5a28-9d59-909dbfc5d21b",
+          "pouName": "main",
+          "variablePath": "canworks_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.canworks_ok",
+          "browseName": "canworks_ok",
+          "displayName": "canworks_ok",
+          "description": "The bridge answers with this program's map",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "0eff959e-05c5-550c-99ef-cfd2814d1d3d",
+          "pouName": "main",
+          "variablePath": "bus_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.bus_ok",
+          "browseName": "bus_ok",
+          "displayName": "bus_ok",
+          "description": "And the CAN bus is up",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "38c6c2a1-ba97-5d8e-8af2-baf6831675b1",
+          "pouName": "main",
+          "variablePath": "rtd_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.rtd_ok",
+          "browseName": "rtd_ok",
+          "displayName": "rtd_ok",
+          "description": "Temperature module (node 5) operational",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "4b9ff270-0c49-5c24-bf50-be35c9c94ab6",
+          "pouName": "main",
+          "variablePath": "dio_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.main.dio_ok",
+          "browseName": "dio_ok",
+          "displayName": "dio_ok",
+          "description": "I/O module (node 6) operational",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "7c3136ba-292e-589a-9e23-48d503c02e2d",
+          "pouName": "main",
+          "variablePath": "dio_in0",
+          "variableType": "USINT",
+          "nodeId": "PLC.main.dio_in0",
+          "browseName": "dio_in0",
+          "displayName": "dio_in0",
+          "description": "Inputs 0-7",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "c063821d-5e65-5605-9747-20746f43413b",
+          "pouName": "main",
+          "variablePath": "dio_in1",
+          "variableType": "USINT",
+          "nodeId": "PLC.main.dio_in1",
+          "browseName": "dio_in1",
+          "displayName": "dio_in1",
+          "description": "Inputs 8-15",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "c679c66f-a038-5efd-9617-3867b522f9c6",
+          "pouName": "main",
+          "variablePath": "dio_out0",
+          "variableType": "USINT",
+          "nodeId": "PLC.main.dio_out0",
+          "browseName": "dio_out0",
+          "displayName": "dio_out0",
+          "description": "Outputs 0-7 (bit 0 is the alarm)",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "2fa21ae6-e473-560d-bb7e-8a25947bf3cf",
+          "pouName": "main",
+          "variablePath": "dio_out1",
+          "variableType": "USINT",
+          "nodeId": "PLC.main.dio_out1",
+          "browseName": "dio_out1",
+          "displayName": "dio_out1",
+          "description": "Outputs 8-15 (the running light)",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "c2a0af40-9919-5550-b437-e632c68d1757",
+          "pouName": "main",
+          "variablePath": "manual_out0",
+          "variableType": "USINT",
+          "nodeId": "PLC.main.manual_out0",
+          "browseName": "manual_out0",
+          "displayName": "manual_out0",
+          "description": "Bits 1-7 of outputs 0-7, set by hand",
+          "permissions": {
+            "viewer": "r",
+            "operator": "rw",
+            "engineer": "rw"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "5e3fc6d2-7a60-522f-b5c5-3218986fa1f2",
+          "pouName": "main",
+          "variablePath": "manual_out1",
+          "variableType": "USINT",
+          "nodeId": "PLC.main.manual_out1",
+          "browseName": "manual_out1",
+          "displayName": "manual_out1",
+          "description": "Outputs 8-15 while the running light is off, set by hand",
+          "permissions": {
+            "viewer": "r",
+            "operator": "rw",
+            "engineer": "rw"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "0ce09a17-079f-5582-a9df-d7e0ee47cc51",
+          "pouName": "GVL",
+          "variablePath": "canworks.ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.canworks.ok",
+          "browseName": "ok",
+          "displayName": "ok",
+          "description": "canworks-bridge answers and serves this program's map",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "d8ffd0aa-7094-5220-b9d5-10e8a4228823",
+          "pouName": "GVL",
+          "variablePath": "canworks.bus_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.canworks.bus_ok",
+          "browseName": "bus_ok",
+          "displayName": "bus_ok",
+          "description": "ok, and every CAN network of the bridge has its bus up (status byte 7 bit 1 clear)",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "ccda7d33-9782-56e7-83ce-bb218e1e39c7",
+          "pouName": "GVL",
+          "variablePath": "canworks.can_bus_state",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.can_bus_state",
+          "browseName": "can_bus_state",
+          "displayName": "can_bus_state",
+          "description": "CAN bus state",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "eee630dc-8b01-58ea-bb5f-f51442b47bbf",
+          "pouName": "GVL",
+          "variablePath": "canworks.can_master_state",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.can_master_state",
+          "browseName": "can_master_state",
+          "displayName": "can_master_state",
+          "description": "CANopen master state",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "a4fc7de7-f8b2-5858-86b9-6a096777c656",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.canworks.rtd_ok",
+          "browseName": "rtd_ok",
+          "displayName": "rtd_ok",
+          "description": "node rtd (5): operational",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "d6ac06e6-1427-54a0-bef3-bd6eb9573fd1",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_state",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.rtd_state",
+          "browseName": "rtd_state",
+          "displayName": "rtd_state",
+          "description": "node rtd (5): NMT state",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "f81c9354-0bc0-5bc2-a344-9c71aae5cc36",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_emcy",
+          "variableType": "WORD",
+          "nodeId": "PLC.canworks.rtd_emcy",
+          "browseName": "rtd_emcy",
+          "displayName": "rtd_emcy",
+          "description": "node rtd (5): last EMCY code",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "debbe878-42fe-5d28-ac4c-f3257759a3fc",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_tpdo1_timeout",
+          "variableType": "BOOL",
+          "nodeId": "PLC.canworks.rtd_tpdo1_timeout",
+          "browseName": "rtd_tpdo1_timeout",
+          "displayName": "rtd_tpdo1_timeout",
+          "description": "node rtd (5): TPDO 1 receive timeout",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "fefba281-ce80-5b0a-854a-718609c46c40",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_temp1",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.rtd_temp1",
+          "browseName": "rtd_temp1",
+          "displayName": "rtd_temp1",
+          "description": "node rtd (5) TPDO1 0x7130:1 AI0_Input_PV",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "2cd852f9-95e5-524e-b8a7-6d6f1878577a",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_temp2",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.rtd_temp2",
+          "browseName": "rtd_temp2",
+          "displayName": "rtd_temp2",
+          "description": "node rtd (5) TPDO1 0x7130:2 AI1_Input_PV",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "060848f8-12a6-527a-88e7-f2b06e4651db",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_AI2_Input_PV",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.rtd_AI2_Input_PV",
+          "browseName": "rtd_AI2_Input_PV",
+          "displayName": "rtd_AI2_Input_PV",
+          "description": "node rtd (5) TPDO1 0x7130:3 AI2_Input_PV",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "41ebb0a8-4f57-541e-8a03-9f8eee7104a6",
+          "pouName": "GVL",
+          "variablePath": "canworks.rtd_AI3_Input_PV",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.rtd_AI3_Input_PV",
+          "browseName": "rtd_AI3_Input_PV",
+          "displayName": "rtd_AI3_Input_PV",
+          "description": "node rtd (5) TPDO1 0x7130:4 AI3_Input_PV",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "a7f35317-4c46-5487-864b-22ba3a93d920",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_ok",
+          "variableType": "BOOL",
+          "nodeId": "PLC.canworks.dio_ok",
+          "browseName": "dio_ok",
+          "displayName": "dio_ok",
+          "description": "node dio (6): operational",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "280c01d6-9622-5845-85f0-9b6fb0d08c7d",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_state",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.dio_state",
+          "browseName": "dio_state",
+          "displayName": "dio_state",
+          "description": "node dio (6): NMT state",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "dd16e98f-6cae-5f09-94e1-5b7595cae250",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_emcy",
+          "variableType": "WORD",
+          "nodeId": "PLC.canworks.dio_emcy",
+          "browseName": "dio_emcy",
+          "displayName": "dio_emcy",
+          "description": "node dio (6): last EMCY code",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "fbfae508-5d82-5687-bb18-4346d3e26ffc",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_in0",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.dio_in0",
+          "browseName": "dio_in0",
+          "displayName": "dio_in0",
+          "description": "node dio (6) TPDO1 0x6000:1 Read input 8-bit 1",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "06272f41-fa0e-58ce-b52f-b782130626bb",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_in1",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.dio_in1",
+          "browseName": "dio_in1",
+          "displayName": "dio_in1",
+          "description": "node dio (6) TPDO1 0x6000:2 Read input 8-bit 2",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "7942f3c9-fe68-59c7-91d6-e165e1944093",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_Read_analogue_input_1",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.dio_Read_analogue_input_1",
+          "browseName": "dio_Read_analogue_input_1",
+          "displayName": "dio_Read_analogue_input_1",
+          "description": "node dio (6) TPDO1 0x6401:1 Read analogue input 1",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "2cf27814-a6bb-5d9f-b244-2e77f8afb9a4",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_Read_analogue_input_2",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.dio_Read_analogue_input_2",
+          "browseName": "dio_Read_analogue_input_2",
+          "displayName": "dio_Read_analogue_input_2",
+          "description": "node dio (6) TPDO1 0x6401:2 Read analogue input 2",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "f02eb177-d033-5278-b44e-f863935dd714",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_out0",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.dio_out0",
+          "browseName": "dio_out0",
+          "displayName": "dio_out0",
+          "description": "node dio (6) RPDO1 0x6200:1 Write output 8-bit 1",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "f32d82ff-a1e8-55af-ab6d-47ee93123e06",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_out1",
+          "variableType": "USINT",
+          "nodeId": "PLC.canworks.dio_out1",
+          "browseName": "dio_out1",
+          "displayName": "dio_out1",
+          "description": "node dio (6) RPDO1 0x6200:2 Write output 8-bit 2",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "5483bfaa-7667-556f-976c-99583c2e65ae",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_Write_analogue_output_1",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.dio_Write_analogue_output_1",
+          "browseName": "dio_Write_analogue_output_1",
+          "displayName": "dio_Write_analogue_output_1",
+          "description": "node dio (6) RPDO1 0x6411:1 Write analogue output 1",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        },
+        {
+          "id": "7bc631aa-a7f8-5c55-91c1-754476ad4f5e",
+          "pouName": "GVL",
+          "variablePath": "canworks.dio_Write_analogue_output_2",
+          "variableType": "INT",
+          "nodeId": "PLC.canworks.dio_Write_analogue_output_2",
+          "browseName": "dio_Write_analogue_output_2",
+          "displayName": "dio_Write_analogue_output_2",
+          "description": "node dio (6) RPDO1 0x6411:2 Write analogue output 2",
+          "permissions": {
+            "viewer": "r",
+            "operator": "r",
+            "engineer": "r"
+          },
+          "nodeType": "variable"
+        }
+      ]
+    }
+  }
+}

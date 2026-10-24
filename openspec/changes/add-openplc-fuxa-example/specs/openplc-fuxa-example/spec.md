@@ -22,7 +22,7 @@ The project SHALL contain the canworks-owned editor files (remote device, `canwo
 - **THEN** the example check fails naming the canworks-owned file that differs
 
 ### Requirement: Alarm logic
-The function block `PLANT_LOGIC` SHALL set the alarm when temperature 1 in °C is above the limit, and reset it only on Ack while the temperature is at or below the limit. Bit 0 of `dio_out0` SHALL follow the alarm, as in the Node-RED and CODESYS examples.
+The function block `PLANT_LOGIC` SHALL set the alarm when temperature 1 in °C is valid (bridge and node 5 OK) and above the limit, and reset it only on Ack while that no longer holds. Bit 0 of `dio_out0` SHALL follow the alarm, as in the Node-RED and CODESYS examples.
 
 #### Scenario: Alarm and Ack
 - **WHEN** the limit is 25.0 °C and simulated temperature 1 rises past 25.0 °C and later falls back below it
@@ -40,7 +40,7 @@ While the running light is on, `PLANT_LOGIC` SHALL move one bit along `dio_out1`
 - **THEN** `light_ok` reads TRUE within a second
 
 ### Requirement: HMI variables in main
-`main` SHALL hold the HMI variables `temp1`, `temp2` (REAL °C), `limit` (REAL, 25.0 at start), `ack`, `run` (TRUE at start), `alarm`, `light_ok`, `rtd_ok`, `dio_ok`, `canworks_ok`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1` and `manual_out1`. It SHALL clear `ack` after the scan that used it.
+`main` SHALL hold the HMI variables `temp1`, `temp2` (REAL °C), `limit` (REAL, 25.0 at start), `ack`, `run` (TRUE at start), `alarm`, `light_ok`, `rtd_ok`, `dio_ok`, `canworks_ok`, `bus_ok`, `dio_in0`, `dio_in1`, `dio_out0`, `dio_out1`, `manual_out0` and `manual_out1`. It SHALL clear `ack` after the scan that used it.
 
 #### Scenario: Ack is a command
 - **WHEN** the HMI writes `ack` TRUE
@@ -50,11 +50,11 @@ While the running light is on, `PLANT_LOGIC` SHALL move one bit along `dio_out1`
 The project SHALL have an enabled OPC UA server entry in `devices/servers/`, in the editor's format, on `opc.tcp://0.0.0.0:4840/openplc/opcua` with a 100 ms cycle. It SHALL have one profile with no security, Anonymous only and anonymous role `operator`, and no users or certificates.
 
 #### Scenario: Anonymous connect
-- **WHEN** an OPC UA client connects anonymously to `opc.tcp://127.0.0.1:4840/openplc/opcua` while the program runs
+- **WHEN** an OPC UA client on the host connects anonymously to `opc.tcp://127.0.0.1:4840/openplc/opcua` while the program runs
 - **THEN** the session opens and it can browse the published nodes
 
 ### Requirement: Published nodes and rights
-The OPC UA entry SHALL publish `main`'s HMI variables as nodes `PLC.main.<name>`. `limit`, `ack`, `run` and `manual_out1` SHALL be read/write for `operator` and `engineer` and read-only for `viewer`. Every other node SHALL be read-only for every role. It SHALL publish the `canworks` variable list read-only when the editor can address it.
+The OPC UA entry SHALL publish `main`'s HMI variables as nodes `PLC.main.<name>`. `limit`, `ack`, `run`, `manual_out0` and `manual_out1` SHALL be read/write for `operator` and `engineer` and read-only for `viewer`. Every other node SHALL be read-only for every role. It SHALL publish each member of the `canworks` variable list except `link` read-only as `PLC.canworks.<member>`.
 
 #### Scenario: Read-only plant value
 - **WHEN** an anonymous OPC UA client writes `PLC.main.temp1`
@@ -65,7 +65,7 @@ The OPC UA entry SHALL publish `main`'s HMI variables as nodes `PLC.main.<name>`
 - **THEN** the program uses 22.0 as the limit from the next scan
 
 ### Requirement: FUXA project
-`fuxa/project.json` SHALL be a FUXA project with one OPC UA device at `opc.tcp://127.0.0.1:4840/openplc/opcua`. Every tag SHALL address a node the OPC UA entry publishes, and every tag a view writes SHALL be writable for `operator`.
+`fuxa/project.json` SHALL be a FUXA project with one OPC UA device at `opc.tcp://bridge:4840/openplc/opcua`, because the runtime binds its server to the network's address and not to 127.0.0.1. Tag ids SHALL be the tag names. Every tag SHALL address a node the OPC UA entry publishes, and every tag a view writes SHALL be writable for `operator`.
 
 #### Scenario: Tags resolve
 - **WHEN** FUXA loads the project while the program runs
@@ -85,7 +85,7 @@ The FUXA project SHALL have a **Plant** view with:
 - **THEN** the alarm lamp comes on
 
 ### Requirement: I/O view
-The FUXA project SHALL have an **I/O** view with lamps for the 16 bits of `dio_in0` and `dio_in1`, and the 16 output bits, with the bits of `dio_out1` switchable through `manual_out1` while the running light is off.
+The FUXA project SHALL have an **I/O** view with lamps for the 16 bits of `dio_in0` and `dio_in1`, and the 16 output bits. Bits 1-7 of `dio_out0` SHALL be switchable through `manual_out0`, and the bits of `dio_out1` through `manual_out1` while the running light is off.
 
 #### Scenario: Switch loops back
 - **WHEN** the user turns the running light off on Plant and switches bit 3 of `dio_out1` on, on the I/O view
@@ -97,14 +97,14 @@ The FUXA project SHALL have an **I/O** view with lamps for the 16 bits of `dio_i
 - the upstream OpenPLC Runtime image at the version `canworks-local-runtime` pins;
 - FUXA 1.3.5.
 
-The runtime and FUXA SHALL share the bridge's network, with no CAN interface and no host network mode, on Linux, macOS and Windows.
+The runtime and FUXA SHALL share the bridge's network, with no CAN interface, no host network mode and no added capabilities, on Linux, macOS and Windows.
 
 #### Scenario: First run
 - **WHEN** a user with Docker runs `docker compose up`, uploads the project to `localhost:8443` from the editor and opens `http://localhost:1881`
 - **THEN** FUXA's Plant view shows the two temperatures changing and both nodes OK
 
 ### Requirement: Compose ports
-The compose setup SHALL publish ports on `127.0.0.1` only: 8443 (runtime), 1881 (FUXA), 4840 (OPC UA) and 7531 (diagnostics).
+The compose setup SHALL publish ports on `127.0.0.1` only: 8443 (runtime), 1881 (FUXA) and 4840 (OPC UA).
 
 #### Scenario: Not on the network
 - **WHEN** another machine on the LAN connects to the host's port 4840

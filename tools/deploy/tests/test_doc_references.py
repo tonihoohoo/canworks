@@ -46,7 +46,7 @@ OPTION = re.compile(r"(?<![\w-])(--[a-z][a-z0-9-]*)")
 NOT_FILES = set()
 # Code that starts with one of these is another program's command line.
 OTHER_PROGRAMS = ("uv ", "git ", "cmake", "ctest", "pip", "npm", "node ", "docker", "podman", "wsl ", "sudo apt",
-                  "openspec ", "CODESYS.exe", "./OpenPLC.Editor")
+                  "openspec ", "CODESYS.exe", "./OpenPLC.Editor", "openplc-cli ")
 # Options of other programs that a text names without their command line.
 NOT_OPTIONS = {"--appimage-extract-and-run"}  # the OpenPLC Editor AppImage
 # The other programs of the repository (the bridge, the simulator, the C++

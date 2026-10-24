@@ -1,0 +1,77 @@
+# The canworks OpenPLC + FUXA example (README.md): the simulated plant in
+# canworks-bridge, the OpenPLC Runtime v4 that runs this folder's program, and
+# FUXA as the HMI, talking to the PLC over OPC UA. In this folder:
+#
+#   docker compose up
+#
+# then open this folder in the OpenPLC Editor, Build and Upload it to
+# localhost:8443, and open FUXA at http://localhost:1881. CANWORKS_VERSION
+# picks the canworks release (default latest).
+
+name: canworks-openplc-fuxa
+
+services:
+  # Copies the plant's files for the bridge, then exits. Runs at every `up`,
+  # so a changed config reaches the bridge.
+  setup:
+    image: ghcr.io/tonihoohoo/canworks-bridge:${CANWORKS_VERSION:-latest}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        rm -rf /plant/* &&
+        cp /example/canworks/canworks.json /example/canworks/simulation.json /example/canworks/*.eds /plant/
+    volumes:
+      - ./:/example:ro
+      - plant:/plant
+
+  # The plant: two CANopen nodes simulated inside the bridge, no CAN
+  # interface. Modbus TCP on 127.0.0.1:1502, inside this service's network
+  # only. The runtime and FUXA share this network, so their ports are here.
+  bridge:
+    image: ghcr.io/tonihoohoo/canworks-bridge:${CANWORKS_VERSION:-latest}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - plant:/etc/canworks-bridge
+    ports:
+      - "127.0.0.1:8443:8443"   # the OpenPLC Runtime (editor upload)
+      - "127.0.0.1:1881:1881"   # FUXA
+      - "127.0.0.1:4840:4840"   # the PLC's OPC UA server
+    restart: unless-stopped
+
+  # Upstream's OpenPLC Runtime v4, unchanged, at the version
+  # canworks-local-runtime is tested with. Its Modbus master reaches the bridge
+  # at 127.0.0.1:1502; its OPC UA server runs once a program with the server
+  # is uploaded. No added capabilities: the scan runs without real-time
+  # priority, which is fine for a simulated plant and works on every engine.
+  runtime:
+    image: ghcr.io/autonomy-logic/openplc-runtime:v4.3.1
+    network_mode: service:bridge
+    depends_on:
+      - bridge
+    volumes:
+      - runtime-data:/var/run/runtime
+    restart: unless-stopped
+
+  # FUXA in the same network. The runtime's OPC UA server listens on the
+  # network's own address, not on 127.0.0.1, so FUXA's device points at
+  # bridge:4840, which is that address. fuxa/start.sh installs FUXA's OPC UA
+  # driver and loads fuxa/project.json on first start.
+  fuxa:
+    image: frangoteam/fuxa:1.3.5
+    network_mode: service:bridge
+    depends_on:
+      - bridge
+    entrypoint: ["/bin/sh", "/example/fuxa/start.sh"]
+    volumes:
+      - ./:/example:ro
+      - fuxa-appdata:/usr/src/app/FUXA/server/_appdata
+      - fuxa-packages:/usr/src/app/FUXA/server/_pkg
+    restart: unless-stopped
+
+volumes:
+  plant:
+  runtime-data:
+  fuxa-appdata:
+  fuxa-packages:
