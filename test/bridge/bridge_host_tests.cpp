@@ -794,6 +794,34 @@ TEST(plc_link_restart_does_not_replay) {
   EXPECT(ooperational(c));  // the last NMT STOP was not replayed
 }
 
+// A PLC rewrites its whole output image every poll: after a bridge restart
+// the request mailbox's first words are its last request again, written
+// together with the header (modbus-bridge-mailboxes "Request baseline from
+// the client's words"). Counter 7 ends cancelled and sends nothing; 8 runs.
+TEST(plc_link_mailbox_restart_does_not_replay) {
+  Host h(plc_link_only, OPENPLC_EXAMPLE_DIR);
+  EXPECT(h.ok);
+  if (!h.ok) return;
+  constexpr uint16_t kReq = 16, kRsp = 33;  // %QB32, %IB66
+  Client c(h.port());
+  EXPECT(wait_for([&] { return ooperational(c); }, 10000));
+  uint32_t hash = served_hash(c);
+  // SDO_READ 0x1018:1 of node 6, raw bytes, 1 s: the request group, then the
+  // header group, every 10 ms, as the PLC's poll.
+  for (int i = 0; i < 30; ++i) {
+    EXPECT(write(c, kReq, {7, kOpSdoRead << 8, (6 << 8) | 1, 0x1018, 3 << 8, 1000, 0, 0}));
+    EXPECT(header(c, 1, hash));
+    usleep(10000);
+  }
+  auto r = regs(c, kReadInputRegisters, kRsp, 4);
+  EXPECT(r.size() == 4 && r[0] == 7 && (r[1] >> 8) == kMbError && (r[1] & 0xFF) == 8);
+  EXPECT(write(c, kReq, {8, kOpSdoRead << 8, (6 << 8) | 1, 0x1018, 3 << 8, 1000, 0, 0}));
+  EXPECT(wait_for([&] {
+    r = regs(c, kReadInputRegisters, kRsp, 4);
+    return r.size() == 4 && r[0] == 8 && (r[1] >> 8) == kMbDone && r[3] == 4;
+  }, 3000));
+}
+
 TEST(plc_link_refusals) {
   canopen_plugin::set_log_sink(capture);
   std::string path = example_copy(

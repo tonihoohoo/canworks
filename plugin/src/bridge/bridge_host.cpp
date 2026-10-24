@@ -387,6 +387,7 @@ bool BridgeHost::start(const std::string& config_path, const char* version) {
   sdo_.reset(cfg_.has_sdo_bridge ? new SdoBridgeRegisters(cfg_.sdo_bridge_write) : nullptr);
   mailboxes_.reset();
   mailbox_backend_.reset();
+  mb_written_ = 0;
   if (cfg_.has_mailboxes) {
     MailboxLayout ml;
     ml.requests = cfg_.mb_requests;
@@ -669,6 +670,10 @@ void BridgeHost::loop() {
       bool wrote_control = !control_known_ && cfg_.has_control &&
                            image_.client_wrote(cfg_.control_location.index, 2);
       bool wrote_sdo = !sdo_known_ && sdo_ && image_.client_wrote(cfg_.sdo_request.index, 2);
+      if (mailboxes_)
+        for (unsigned m = 0; m < mailboxes_->layout().requests; ++m)
+          if (!(mb_written_ >> m & 1u) && image_.client_wrote(mailboxes_->layout().request(m), 4))
+            mb_written_ |= 1u << m;
       ctl_seen = image_.take_outputs(out_copy_.data(), ctl_seen);
       take_baselines(out_copy_.data(), wrote_control, wrote_sdo);
       if (control_known_) service_control(out_copy_.data(), now);
@@ -678,7 +683,7 @@ void BridgeHost::loop() {
         // Requests count only while the outputs run: a stopped or
         // mismatched program's words are not taken.
         bool live = ctl_seen != first_out_version_ && supervisor_->running();
-        mailboxes_->service(live ? out_copy_.data() : nullptr, g_image->in.data(), now);
+        mailboxes_->service(live ? out_copy_.data() : nullptr, g_image->in.data(), now, mb_written_);
         if (uint32_t stalled = mailboxes_->take_stalled())
           log_warn("bridge receive mailbox: receivers 0x%08x closed: their records were not taken within 1 s (a "
                    "block that is no longer called, or a program that does not read them)",
