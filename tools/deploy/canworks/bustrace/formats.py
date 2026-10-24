@@ -67,7 +67,7 @@ def format_of(path, fmt=None):
 
 def _frames(trace_or_frames):
     for f in trace_or_frames:
-        if not f.gap:
+        if not f.gap and not f.modbus:
             yield f
 
 
@@ -339,6 +339,75 @@ _EPB = struct.Struct("<IIIIIII4sB3x8s12sI")
 _EPB_DIRECTION = {tx: _opt(2, struct.pack("<I", 2 if tx else 1)) + _opt(0, b"") for tx in (False, True)}
 
 
+# The bridge's Modbus records (canopen-bus-trace "Modbus records in saved
+# traces"): a second interface of IPv4 packets, request and answer per record
+# between the client and the bridge's port, after a made-up handshake per
+# client connection so a Modbus/TCP dissector follows the stream. The request
+# packet's comment holds the record's own fields, so the trace reads them back.
+LINKTYPE_IPV4 = 228
+MODBUS_IFACE = "canworks-modbus"
+
+
+def _ip_sum(b):
+    if len(b) % 2:
+        b += b"\0"
+    s = sum(struct.unpack("!%dH" % (len(b) // 2), b))
+    while s >> 16:
+        s = (s & 0xFFFF) + (s >> 16)
+    return ~s & 0xFFFF
+
+
+def _ipv4(text):
+    import ipaddress
+    try:
+        a = ipaddress.ip_address(text)
+    except ValueError:
+        return b"\0\0\0\0"
+    if a.version == 6:
+        a = a.ipv4_mapped or ipaddress.ip_address("0.0.0.0")
+    return a.packed
+
+
+def _tcp_packet(src, dst, sport, dport, seq, ack, flags, payload=b""):
+    tcp = struct.pack("!HHIIBBHHH", sport, dport, seq & 0xFFFFFFFF, ack & 0xFFFFFFFF, 5 << 4, flags, 65535, 0, 0)
+    pseudo = src + dst + struct.pack("!BBH", 0, 6, len(tcp) + len(payload))
+    csum = _ip_sum(pseudo + tcp + payload)
+    tcp = tcp[:16] + struct.pack("!H", csum) + tcp[18:]
+    total = 20 + len(tcp) + len(payload)
+    ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, total, 0, 0x4000, 64, 6, 0, src, dst)
+    ip = ip[:10] + struct.pack("!H", _ip_sum(ip)) + ip[12:]
+    return ip + tcp + payload
+
+
+def _epb(ifid, time_us, pkt, opts=b""):
+    body = struct.pack("<IIIII", ifid, time_us >> 32, time_us & 0xFFFFFFFF, len(pkt), len(pkt)) + _pad4(pkt)
+    return _block(6, body + (opts + _opt(0, b"") if opts else b""))
+
+
+def _modbus_packets(rec, streams, server, port):
+    """The packets of one record: (time_us, packet, comment)."""
+    key = (rec.address, rec.port, rec.conn)
+    src = _ipv4(rec.address)
+    out = []
+    st = streams.get(key)
+    if st is None:
+        # A made-up handshake opens each client connection's stream.
+        st = streams[key] = [1000, 5000]
+        out.append((rec.time_us, _tcp_packet(src, server, rec.port, port, st[0] - 1, 0, 0x02), None))
+        out.append((rec.time_us, _tcp_packet(server, src, port, rec.port, st[1] - 1, st[0], 0x12), None))
+        out.append((rec.time_us, _tcp_packet(src, server, rec.port, port, st[0], st[1], 0x10), None))
+    req = struct.pack("!HHHB", rec.transaction, 0, len(rec.req) + 1, rec.unit) + rec.req
+    resp = struct.pack("!HHHB", rec.transaction, 0, len(rec.resp) + 1, rec.unit) + rec.resp
+    note = {"canworks_modbus": 1, "address": rec.address, "seq": rec.seq, "conn": rec.conn,
+            "skipped": rec.skipped, "flags": rec.flags}
+    out.append((rec.time_us, _tcp_packet(src, server, rec.port, port, st[0], st[1], 0x18, req),
+                json.dumps(note, separators=(",", ":"))))
+    st[0] += len(req)
+    out.append((rec.time_us, _tcp_packet(server, src, port, rec.port, st[1], st[0], 0x18, resp), None))
+    st[1] += len(resp)
+    return out
+
+
 def write_pcapng(trace, out, interface=None):
     meta = _meta_of(trace)
     iface = interface or meta.get("interface") or "can0"
@@ -349,8 +418,23 @@ def write_pcapng(trace, out, interface=None):
     if meta.get("bitrate"):
         idb_opts += _opt(8, struct.pack("<Q", int(meta["bitrate"])))  # if_speed
     out.write(_block(1, struct.pack("<HHI", LINKTYPE_CAN_SOCKETCAN, 0, 16) + idb_opts + _opt(0, b"")))
+    records = trace.modbus if isinstance(trace, Trace) else []
+    if records:
+        out.write(_block(1, struct.pack("<HHI", LINKTYPE_IPV4, 0, 65535) + _opt(2, MODBUS_IFACE.encode())
+                         + _opt(9, b"\x06") + _opt(1, b"Modbus TCP requests and answers of canworks-bridge")
+                         + _opt(0, b"")))
+    server = _ipv4(meta.get("modbus_address") or "0.0.0.0")
+    port = int(meta.get("modbus_port") or 502)
+    streams = {}
     pack, n = _EPB.pack, _EPB.size
-    for f in _frames(trace):
+    for f in trace:
+        if f.gap:
+            continue
+        if f.modbus:
+            if f.can_id < len(records):
+                for us, pkt, note in _modbus_packets(records[f.can_id], streams, server, port):
+                    out.write(_epb(1, us, pkt, _opt(1, note.encode()) if note else b""))
+            continue
         cid = f.can_id | (EFF if f.ext else 0) | (RTR if f.rtr else 0) | (ERR if f.err else 0)
         us = f.time_us
         out.write(pack(6, n, 0, us >> 32, us & 0xFFFFFFFF, 16, 16, cid.to_bytes(4, "big"), f.dlc, f.data,
@@ -412,6 +496,7 @@ def read_pcapng(data):
     can = []  # the names of every section's SocketCAN interfaces
     others = set()
     meta = None
+    mb = {"records": [], "open": {}}  # Modbus records, and requests waiting for their answers
     while i + 12 <= len(data):
         try:
             btype = u32.unpack_from(data, i)[0]
@@ -443,7 +528,7 @@ def read_pcapng(data):
                 ifaces.append((linktype, tps, (opts.get(2) or b"").decode("utf-8", "replace"), tsoffset))
                 if linktype == LINKTYPE_CAN_SOCKETCAN:
                     can.append(ifaces[-1][2])
-                else:
+                elif not (linktype == LINKTYPE_IPV4 and ifaces[-1][2] == MODBUS_IFACE):
                     others.add(linktype)
             elif btype in (6, 3):
                 if btype == 6:
@@ -459,7 +544,10 @@ def read_pcapng(data):
                 else:
                     ifid, ticks, flags = 0, 0, 0
                     pkt = body[4:]
-                if ifid < len(ifaces) and ifaces[ifid][0] == LINKTYPE_CAN_SOCKETCAN:
+                if ifid < len(ifaces) and ifaces[ifid][0] == LINKTYPE_IPV4 and ifaces[ifid][2] == MODBUS_IFACE:
+                    time_us = ticks * 1000000 // ifaces[ifid][1] + ifaces[ifid][3] * 1000000
+                    _read_modbus_packet(pkt, time_us, body, 20 + len(pkt) + (-len(pkt) % 4), endian, mb)
+                elif ifid < len(ifaces) and ifaces[ifid][0] == LINKTYPE_CAN_SOCKETCAN:
                     time_us = ticks * 1000000 // ifaces[ifid][1] + ifaces[ifid][3] * 1000000
                     rec = _socketcan_record(pkt, time_us, (flags & 3) == 2)
                     if rec:
@@ -481,13 +569,66 @@ def read_pcapng(data):
             t = _apply_meta(t, meta)
         except DAMAGED as e:
             raise _damaged("the canworks metadata", e)
+    if mb["records"]:
+        t = _with_modbus(t, mb["records"])
     return t
+
+
+def _read_modbus_packet(pkt, time_us, body, opt_at, endian, mb):
+    """One IPv4 packet of the Modbus interface: a request with its comment
+    opens a record, the answer on the same stream closes it."""
+    from .modbus import Record
+    if len(pkt) < 40 or pkt[9] != 6:
+        return
+    ihl = (pkt[0] & 0x0F) * 4
+    tcp = pkt[ihl:]
+    if len(tcp) < 20:
+        return
+    sport, dport = struct.unpack("!HH", tcp[:4])
+    payload = tcp[(tcp[12] >> 4) * 4:]
+    if len(payload) < 8:
+        return
+    tid, _, length, unit = struct.unpack("!HHHB", payload[:7])
+    pdu = payload[7:6 + length]
+    opts = _parse_options(body[opt_at:], endian)
+    note = None
+    if 1 in opts:
+        try:
+            note = json.loads(opts[1].decode("utf-8"))
+        except ValueError:
+            note = None
+    if isinstance(note, dict) and note.get("canworks_modbus"):
+        rec = Record(time_us, str(note.get("address") or ""), pdu, b"", seq=int(note.get("seq") or 0),
+                     conn=int(note.get("conn") or 0), skipped=int(note.get("skipped") or 0), transaction=tid,
+                     unit=unit, flags=int(note.get("flags") or 0), port=sport)
+        mb["open"][(pkt[12:16], sport, tid)] = rec
+        mb["records"].append(rec)
+        return
+    rec = mb["open"].pop((pkt[16:20], dport, tid), None)
+    if rec is not None:
+        rec.resp = bytes(pdu)
+
+
+def _with_modbus(t, records):
+    """The trace with places for its Modbus records, in time order."""
+    records.sort(key=lambda r: r.time_us)
+    t2 = Trace(limit=max(t.limit, len(t) + len(records)))
+    t2.meta, t2.markers, t2.lost, t2.kernel_drops = t.meta, t.markers, t.lost, t.kernel_drops
+    k = 0
+    for f in t:
+        while k < len(records) and records[k].time_us < f.time_us:
+            t2.append_modbus(records[k])
+            k += 1
+        t2.append(f)
+    for r in records[k:]:
+        t2.append_modbus(r)
+    return t2
 
 
 def _apply_meta(t, meta):
     """The trace with the canworks metadata of a pcapng file applied."""
     for k in ("network", "interface", "bitrate", "config_sha256", "source", "trigger", "started_utc", "runtime",
-              "connection"):
+              "connection", "modbus", "bridge_map_hash", "modbus_port", "modbus_address"):
         if meta.get(k) is not None:
             t.meta[k] = meta[k]
     for m in meta.get("markers") or []:
@@ -595,6 +736,16 @@ def _num(v):
 
 # ---------------------------------------------------------------------------
 # Files
+
+MODBUS_LEFT_OUT = "the Modbus requests are kept in pcapng only; this file has the CAN frames"
+
+
+def left_out(trace, fmt):
+    """What a save in `fmt` leaves out of `trace`, or None."""
+    if fmt != "pcapng" and isinstance(trace, Trace) and trace.modbus:
+        return MODBUS_LEFT_OUT
+    return None
+
 
 def write(trace, out, fmt, decoder=None):
     """Writes `trace` (a Trace or frames) to a binary file object."""

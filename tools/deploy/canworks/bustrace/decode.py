@@ -31,7 +31,7 @@ from .model import Frame
 
 # J1939 kinds (j1939.py) come last so the CANopen codes stay as they were.
 KINDS = ("nmt", "sync", "time", "emcy", "heartbeat", "sdo", "pdo", "lss", "error", "gap", "other",
-         "pgn", "claim", "request", "ack", "tp", "raw")
+         "pgn", "claim", "request", "ack", "tp", "raw", "modbus")
 # Kinds whose frames a later frame's decoding depends on (segmented SDO
 # transfers, J1939 transport sessions): decoded again before a window.
 CONTEXT_KINDS = ("sdo", "tp")
@@ -587,6 +587,8 @@ class Decoder:
 
     # -- decoding -------------------------------------------------------------
     def decode(self, f):
+        if f.modbus:
+            return Decoded("modbus", name="Modbus")
         if f.gap:
             return Decoded("gap", text="capture restarted (frames may be missing)")
         if f.err:
@@ -899,6 +901,8 @@ class PlainDecoder(Decoder):
     protocol = "none"
 
     def decode(self, f):
+        if f.modbus:
+            return Decoded("modbus", name="Modbus")
         if f.gap or f.err:
             return super().decode(f)
         r = self.decode_raw(f) or self.decode_dbc(f)

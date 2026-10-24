@@ -426,6 +426,8 @@ class J1939Decoder(Decoder):
             PGN_ADDRESS_CLAIMED, PGN_REQUEST, PGN_ACK, PGN_TP_CM, PGN_TP_DT)
 
     def decode(self, f):
+        if f.modbus:
+            return Decoded("modbus", name="Modbus")
         if f.gap or f.err:
             return super().decode(f)
         r = self.decode_raw(f)

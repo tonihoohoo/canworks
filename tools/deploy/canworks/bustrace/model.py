@@ -15,6 +15,7 @@ ID_MASK = 0x1FFFFFFF
 
 TX = 0x01   # sent from the PLC host
 GAP = 0x02  # no frame: capture stopped and restarted here
+MODBUS = 0x04  # no frame: the Modbus record trace.modbus[can_id] (bustrace/modbus.py)
 
 DEFAULT_LIMIT = 2_000_000
 
@@ -22,7 +23,8 @@ DEFAULT_LIMIT = 2_000_000
 class Frame:
     __slots__ = ("time_us", "raw_id", "dlc", "flags", "data")
 
-    def __init__(self, time_us, can_id, data=b"", ext=False, rtr=False, err=False, tx=False, gap=False, dlc=None):
+    def __init__(self, time_us, can_id, data=b"", ext=False, rtr=False, err=False, tx=False, gap=False, dlc=None,
+                 modbus=False):
         self.time_us = int(time_us)
         raw = can_id & ID_MASK
         if ext:
@@ -34,7 +36,7 @@ class Frame:
         self.raw_id = raw
         self.data = bytes(data)[:8]
         self.dlc = len(self.data) if dlc is None else min(int(dlc), 8)
-        self.flags = (TX if tx else 0) | (GAP if gap else 0)
+        self.flags = (TX if tx else 0) | (GAP if gap else 0) | (MODBUS if modbus else 0)
 
     @classmethod
     def unpack(cls, buf, offset=0):
@@ -73,6 +75,11 @@ class Frame:
         return bool(self.flags & GAP)
 
     @property
+    def modbus(self):
+        """A place in the time order for a Modbus record, not a CAN frame."""
+        return bool(self.flags & MODBUS)
+
+    @property
     def t(self):
         """UTC seconds."""
         return self.time_us / 1e6
@@ -89,6 +96,8 @@ class Frame:
     def __repr__(self):
         if self.gap:
             return "Frame(gap at %d)" % self.time_us
+        if self.modbus:
+            return "Frame(Modbus record %d at %d)" % (self.can_id, self.time_us)
         return "Frame(%d, %s%s%s, [%s]%s)" % (self.time_us, self.id_text(), " RTR" if self.rtr else "",
                                              " ERR" if self.err else "", self.data_text(), " Tx" if self.tx else "")
 
@@ -98,6 +107,8 @@ class Trace:
 
     markers: [{"time_us", "label", "kind"}]; lost: [(time_us, frames)].
     meta: network, interface, bitrate (bit/s), config_sha256, source, trigger, ...
+    modbus: the bridge's Modbus records (bustrace/modbus.py Record); each has
+    a MODBUS place among the frames whose identifier is its index here.
     """
 
     def __init__(self, limit=DEFAULT_LIMIT):
@@ -109,6 +120,7 @@ class Trace:
         self.lost = []
         self.kernel_drops = 0
         self.meta = {}
+        self.modbus = []
 
     def __len__(self):
         return len(self.times)
@@ -184,6 +196,7 @@ class Trace:
         t.markers = [dict(m) for m in self.markers if lo <= m["time_us"] <= hi]
         t.lost = [x for x in self.lost if lo <= x[0] <= hi]
         t.meta = dict(self.meta)
+        t.modbus = self.modbus  # the places keep their indices
         return t
 
     def add_marker(self, time_us, label, kind="marker"):
@@ -197,6 +210,21 @@ class Trace:
         self.lost = []
         self.dropped = 0
         self.kernel_drops = 0
+        self.modbus = []
+
+    def append_modbus(self, record, at_us=None):
+        """A Modbus record and its place, at its time or `at_us` (the last
+        frame's time when the record came after a later frame)."""
+        self.modbus.append(record)
+        self.append(Frame(record.time_us if at_us is None else at_us, len(self.modbus) - 1, modbus=True))
+
+    def modbus_records(self, start_us=None, end_us=None):
+        """The Modbus records in a time range, in order."""
+        out = []
+        for f in self.frames(start_us, end_us):
+            if f.modbus and f.can_id < len(self.modbus):
+                out.append(self.modbus[f.can_id])
+        return out
 
 
 def unpack_records(data):

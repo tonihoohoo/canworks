@@ -23,6 +23,7 @@ configurator's online view uses the Client class of this module.
 
 import argparse
 import base64
+import datetime
 import getpass
 import hashlib
 import hmac
@@ -704,6 +705,23 @@ class Client:
     def trace_stop(self):
         return self.request("trace_stop")
 
+    # The bridge's Modbus trace (canopen-online-diagnostics "Modbus trace
+    # operations"): read-only, bridge-wide.
+    def modbus_trace_start(self, changes_only=True, clients=None):
+        """The result has "next", "map_hash", "buffer_bytes", "port"."""
+        fields = {"changes_only": bool(changes_only)}
+        if clients:
+            fields["clients"] = list(clients)
+        return self.request("modbus_trace_start", **fields)
+
+    def modbus_trace_fetch(self, after, max_records=4000):
+        """Records after the cursor: "records" (base64, bustrace/modbus.py
+        Record), "count", "next", "more", "lost"."""
+        return self.request("modbus_trace_fetch", after=after, max=max_records)
+
+    def modbus_trace_stop(self):
+        return self.request("modbus_trace_stop")
+
     # Raw frames (allow_changes). A refusal that ends in
     # "force needed" may be repeated with force=True once the user agrees.
     def send_frame(self, can_id, data=b"", ext=False, rtr=False, dlc=None, period_ms=None, count=None, force=False):
@@ -1033,6 +1051,17 @@ def parser():
     tr.add_argument("--post", type=float, default=2.0, metavar="S", help="post-trigger time (default %(default)s)")
     tr.add_argument("--autosave", metavar="FORMAT",
                     help="normal mode: write the pre/post window of each hit next to the output in this format")
+    mt = sub.add_parser("modbus-trace", help="print the bridge's Modbus requests as they come (read-only)",
+                        description="Prints each Modbus request the bridge answers, one line each: time, client, "
+                                    "function, range, values and result. By default only changes are recorded: a "
+                                    "request that equals the client's previous one of its kind is counted, and the "
+                                    "next one says how many it skipped. Stops after --duration or on Ctrl-C.")
+    mt.add_argument("--config", metavar="canworks.json", help="name the values with this config's register map")
+    mt.add_argument("--all", action="store_true", help="record every request, not only changes")
+    mt.add_argument("--client", action="append", default=[], metavar="ADDRESS",
+                    help="only this client's requests (an address or prefix, repeatable)")
+    mt.add_argument("-o", "--output", metavar="FILE.pcapng", help="also write the requests to a pcapng file")
+    mt.add_argument("--duration", type=float, metavar="S", help="stop after S seconds (default: Ctrl-C)")
     cv = sub.add_parser("convert", help="convert a trace file (no connection)")
     cv.add_argument("input", help=".pcapng, .pcap, .log (candump) or .asc")
     cv.add_argument("output", help=".pcapng, .log, .asc, .blf, .trc or .csv")
@@ -1339,6 +1368,8 @@ def _print_status(st, out):
         _print_raw_status(st["raw"], out)
     if st.get("bridge"):
         out.write(bridge_status_line(st["bridge"]) + "\n")
+        for line in modbus_client_lines(st["bridge"]):
+            out.write(line + "\n")
         out.write(mailbox_status_line(st["bridge"]) + "\n")
     if st.get("cia309"):
         out.write(gateway_status_line(st["cia309"]) + "\n")
@@ -2473,6 +2504,10 @@ def run(args, out=sys.stdout):
         return _gateway(args, out)
     if args.command == "trace":
         return _trace(args, out)
+    if args.command == "modbus-trace":
+        if args.adapter:
+            raise DiagError("usage", "the Modbus trace is the bridge's: give --runtime, not --adapter")
+        return _modbus_trace(args, out)
     if args.command == "dm":
         return _dm(args, out)
     if args.adapter:
@@ -3385,6 +3420,104 @@ def _trace(args, out):
     finally:
         if args.adapter:
             first.close()
+
+
+def _modbus_trace(args, out):
+    """canworks-diag modbus-trace (canopen-online-diagnostics "Modbus trace in
+    the command-line client")."""
+    import base64
+    from .bustrace import formats
+    from .bustrace.model import Trace
+    from .bustrace.modbus import MapDecoder, Record
+    if args.output and formats.format_of(args.output) != "pcapng":
+        raise DiagError("usage", "-o: the Modbus requests are written as pcapng only (FILE.pcapng)")
+    cfg = None
+    if args.config:
+        try:
+            with open(args.config, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except (OSError, ValueError) as e:
+            raise DiagError("usage", "--config: %s" % e)
+    host, port = parse_runtime(args.runtime)
+    client = Client(host, port, _token(args), args.timeout)
+    client.connect()
+    trace = Trace()
+    trace.meta.update({"runtime": args.runtime, "modbus": True})
+    try:
+        r = client.modbus_trace_start(changes_only=not args.all, clients=args.client or None)
+        mapdec = MapDecoder(cfg, bridge_hash=r.get("map_hash"))
+        trace.meta["bridge_map_hash"] = r.get("map_hash")
+        trace.meta["modbus_port"] = r.get("port")
+        if cfg is not None and (mapdec.problem or mapdec.mismatch):
+            out.write("note: %s\n" % (mapdec.problem or mapdec.mismatch))
+        after = int(r.get("next") or 0)
+        out.write("Modbus trace of %s (%s); Ctrl-C stops\n" % (args.runtime, "every request" if args.all
+                                                                 else "changes only"))
+        out.flush()
+        end = time.monotonic() + args.duration if args.duration else None
+        try:
+            while end is None or time.monotonic() < end:
+                f = client.modbus_trace_fetch(after, 4000)
+                after = int(f.get("next", after))
+                if f.get("lost"):
+                    out.write("-- %d requests lost (the bridge's buffer wrapped)\n" % f["lost"])
+                for rec in Record.unpack_all(base64.b64decode(f.get("records") or "")):
+                    trace.append_modbus(rec)
+                    out.write(modbus_line(mapdec.decode(rec)) + "\n")
+                out.flush()
+                if not f.get("more"):
+                    time.sleep(0.1)
+        except KeyboardInterrupt:
+            pass
+        try:
+            client.modbus_trace_stop()
+        except DiagError:
+            pass
+    finally:
+        client.close()
+    if args.output:
+        formats.write_file(trace, args.output, "pcapng")
+        out.write("wrote %d Modbus requests to %s\n" % (len(trace.modbus), args.output))
+    return 0
+
+
+def modbus_line(d):
+    """One decoded Modbus record as a line."""
+    t = datetime.datetime.fromtimestamp(d["time_us"] / 1e6).strftime("%H:%M:%S.%f")[:-3]
+    line = "%s %s fn %d %s" % (t, d["client"], d["function"], d["text"])
+    if d["skipped"]:
+        line += " (after %d unchanged)" % d["skipped"]
+    if d["exception"] is None:
+        line += " ok"
+    for h in d["hints"]:
+        line += "\n    hint: %s" % h
+    return line
+
+
+def modbus_client_lines(b):
+    """The bridge's Modbus clients with their counters, and the recently
+    closed connections (canopen-online-diagnostics "Modbus clients in the
+    status")."""
+    now = time.time()
+    lines = []
+    for c in b.get("clients") or []:
+        if "functions" not in c:
+            continue  # an older bridge: the summary line has them
+        since = c.get("connected_us")
+        up = "%d s" % max(0, now - since / 1e6) if since else "?"
+        ex = ", ".join("%s x%s" % (k, v) for k, v in sorted((c.get("exceptions") or {}).items())) or "none"
+        lw = c.get("last_write")
+        last = ("%s %s" % ({"holding register": "HR", "coil": "CO"}.get(lw.get("table"), lw.get("table")),
+                           lw["start"] if lw.get("count", 1) <= 1 else "%d-%d" % (lw["start"], lw["start"] + lw["count"] - 1))
+                if isinstance(lw, dict) else "none")
+        lines.append("  client %s:%s%s, connected %s, %.1f requests/s, exceptions %s, refused writes %s, last write %s"
+                     % (c.get("address"), c.get("port", "?"), " (writer)" if c.get("writer") else "", up,
+                        float(c.get("rate") or 0), ex, c.get("refused_writes", 0), last))
+    for c in b.get("closed_clients") or []:
+        lines.append("  closed %s:%s %s s ago: %s (after %s s, %s requests)" % (
+            c.get("address"), c.get("port", "?"), c.get("ago_s", "?"), c.get("reason"), c.get("connected_s", "?"),
+            c.get("requests", 0)))
+    return lines
 
 
 def drops_by(adapter):
