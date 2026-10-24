@@ -31,6 +31,7 @@ void ProcessImage::build(const Config& cfg) {
   node_errreg_loc_.clear();
   sdo_vars_.clear();
   timeouts_.clear();
+  counters_.clear();
   node_has_nmt_.clear();
   node_nmt_loc_.clear();
   for (const auto& n : cfg.nodes) {
@@ -53,6 +54,7 @@ void ProcessImage::build(const Config& cfg) {
       for (const auto& e : p.entries)
         if (binding(n.node_id, e, b)) inputs_.push_back(b);
       if (p.has_timeout && p.has_timeout_location) timeouts_.push_back({n.node_id, p.number, p.timeout_location});
+      if (p.has_counter_location) counters_.push_back({n.node_id, p.number, p.counter_location});
     }
     for (const auto& p : n.rx_pdos)
       for (const auto& e : p.entries)
@@ -72,7 +74,8 @@ void ProcessImage::build(const Config& cfg) {
   bus_slot_ = inputs_.size() + 5 * node_ids_.size();
   sdo_in_slot_ = bus_slot_ + 5;
   timeout_slot_ = sdo_in_slot_ + 3 * sdo_vars_.size();
-  in_work_.assign(timeout_slot_ + timeouts_.size(), 0);
+  counter_slot_ = timeout_slot_ + timeouts_.size();
+  in_work_.assign(counter_slot_ + counters_.size(), 0);
   in_.resize(in_work_.size());
   sdo_out_slot_ = outputs_.size();
   nmt_out_slot_ = sdo_out_slot_ + 2 * sdo_vars_.size();
@@ -184,6 +187,7 @@ void ProcessImage::copy_to_plc(ImageHost& rt) {
     if (v.has_abort_code) image_write_input(rt, v.abort_code_location, slot[2]);
   }
   for (size_t k = 0; k < timeouts_.size(); ++k) image_write_input(rt, timeouts_[k].location, snap[timeout_slot_ + k]);
+  for (size_t k = 0; k < counters_.size(); ++k) image_write_input(rt, counters_[k].location, snap[counter_slot_ + k]);
 }
 
 void ProcessImage::copy_from_plc(ImageHost& rt) {

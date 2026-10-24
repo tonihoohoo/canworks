@@ -1799,6 +1799,10 @@
       "verdict": "reject",
       "messages": [ "TPDO 1: field 'timeout_location' must be an input bit (%IX...), not %IB10" ]
     },
+    { "name": "frame counter on a TPDO", "patch": [["set", "networks/0/nodes/0/tx_pdos/0/counter_location", "%IW50"]], "schema": "valid", "verdict": "accept" },
+    { "name": "frame counter on an RPDO", "patch": [["set", "networks/0/nodes/0/rx_pdos/0/counter_location", "%IW50"]], "schema": "invalid", "verdict": "reject", "messages": ["RPDO 1: field 'counter_location' is only for tx_pdos (PDOs the node sends)"] },
+    { "name": "frame counter not a word", "patch": [["set", "networks/0/nodes/0/tx_pdos/0/counter_location", "%IB50"]], "schema": "invalid", "verdict": "reject", "messages": ["TPDO 1: field 'counter_location' must be an input word (%IW...), not %IB50"] },
+    { "name": "frame counter clash", "patch": [["set", "networks/0/nodes/0/tx_pdos/0/counter_location", "%IW100"]], "schema": "valid", "verdict": "reject", "messages": ["TPDO 1 counter_location (%IW100)"] },
     {
       "name": "TPDO above 4 without cob_id",
       "patch": [ [ "set", "networks/0/nodes/0/tx_pdos/0/number", 5 ] ],

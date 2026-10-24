@@ -463,6 +463,7 @@ Each communication field that is set (`cob_id`, `transmission`, `inhibit_time_us
 | `timeout_ms` | no | TPDOs only. Receive timeout in ms, 1-65535, or `"auto"` (two times the PDO's event timer). The master flags the PDO when none has arrived for this long while its node is up; see [Receive timeout](#receive-timeout). Left out: no timeout. |
 | `on_timeout` | no | TPDOs with `timeout_ms` only. What the PDO's inputs read while it is timed out: `"hold"` (default) keeps the last values, `"zero"` sets them to 0 until the PDO arrives again. |
 | `timeout_location` | no | TPDOs with `timeout_ms` only. An `%IX` input bit, TRUE while the PDO is timed out. |
+| `counter_location` | no | TPDOs only. An `%IW` input word that grows by one with every received PDO that updated the inputs, wrapping at 65535. A short PDO is not counted. More than one PDO can arrive between two polls or scans; the program sees the last values, and the counter (`new := counter - last`, in UINT arithmetic) tells it how many came. It starts at 0 when the bridge starts and nothing else resets it. |
 | `mapping` | no | Who sets the PDO's mapping: `"config"`, the master writes it from `entries`; or `"device"`, nothing is written and the node keeps the default mapping from its EDS (see below). Left out: `"device"` when the EDS makes the mapping read-only, else `"config"`. |
 | `entries` | yes | The mapped objects, in PDO order, at most 64 bits in total. With the device mapping: the objects of it the PLC uses, in any order. |
 

@@ -333,6 +333,7 @@ function j1939Message(dir, m, i) {
     m.source_name !== undefined ? field("NAME mask", base + ".source_name_mask", "text", { placeholder: "all bits", hint: "The NAME bits to compare. Empty: all." }) : null,
     field("Timeout (ms)", base + ".timeout_ms", "int", { parse: intValue, placeholder: "none", hint: "The status input goes FALSE when no message arrived for this long. Empty or 0: no supervision." }),
     locationField("Status", base + ".status_location", "j1939_status", "%IX…", "Bit input: TRUE while the PGN arrives in time. Empty: none."),
+    locationField("Message counter", base + ".counter_location", "j1939_counter", "%IW…", "Word input: grows by one per message this entry takes (wraps at 65535), so the program sees messages that came within one poll. Empty: none."),
   ] : [
     field("Priority", base + ".priority", "int", { parse: intValue, placeholder: "6", hint: "0 (highest) to 7. Default 6." }),
     isPdu1(m.pgn) ? field("Destination", base + ".destination", "int", { parse: intValue, placeholder: "255 (global)", hint: "0 to 253, or 255 for every ECU." }) : null,

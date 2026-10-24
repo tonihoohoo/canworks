@@ -1765,7 +1765,7 @@ class Session:
         node `node`: direction "input"/"output" with a CANopen type, or
         direction "status" for the node's status bit, "state" for its
         state byte, "boot_error" for its boot error byte, "emcy" for its
-        EMCY code word, "errreg" for its error register byte, "nmt" for its
+        EMCY code word, "counter" for a TPDO's frame counter word, "errreg" for its error register byte, "nmt" for its
         NMT command byte, "sdo_read"/"sdo_write" with a CANopen type for an
         SDO variable's value, "sdo_trigger", "sdo_status" or "sdo_abort" for
         an SDO variable's other locations, or a master diagnostic key (no
@@ -1818,7 +1818,7 @@ class Session:
             return {"location": layout.suggest("I", "X", used, start)}
         if direction in ("state", "boot_error", "errreg"):
             return {"location": layout.suggest("I", "B", used, start)}
-        if direction == "emcy":
+        if direction in ("emcy", "counter"):
             return {"location": layout.suggest("I", "W", used, start)}
         if direction == "nmt":
             return {"location": layout.suggest("Q", "B", used, start)}
@@ -2648,7 +2648,7 @@ def dm_texts(res):
 
 # J1939 locations /api/place suggests: direction -> (area, size letter).
 J1939_PLACES = {"j1939_state": ("I", "B"), "j1939_address": ("I", "B"), "j1939_status": ("I", "X"),
-                "j1939_valid": ("I", "X"),
+                "j1939_valid": ("I", "X"), "j1939_counter": ("I", "W"),
                 # Diagnostics (j1939-diagnostics "Diagnostics config"): a watched ECU's status bit and
                 # lamp, flash and count bytes, an own code's bit, the lamps output and the clears counter.
                 "j1939_dm_status": ("I", "X"), "j1939_dm_lamps": ("I", "B"), "j1939_dm_flash": ("I", "B"),

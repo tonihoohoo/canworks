@@ -382,7 +382,7 @@ The user's own POUs are never touched. A file canworks owns that was changed in 
 
 **Example.** [`examples/openplc-fuxa`](../examples/openplc-fuxa/README.md) is a complete editor project with an OpenPLC connection, a plant logic block and a FUXA HMI on the runtime's OPC UA server, with the bridge, runtime and FUXA in `docker compose`.
 
-**Timing.** OpenPLC's Modbus master reads every group, then writes every group, once per poll, on one connection. A value arrives up to one poll after the bridge has it, and an output up to one poll after the scan wrote it. Each group is one request, read under one lock in the bridge, so the values of one PDO always come together; two groups may come from different moments.
+**Timing.** OpenPLC's Modbus master reads every group, then writes every group, once per poll, on one connection. A value arrives up to one poll after the bridge has it, and an output up to one poll after the scan wrote it. Each group is one request, read under one lock in the bridge, so the values of one PDO always come together; two groups may come from different moments. A client sees the last values of each message per poll: a PDO, CAN message or J1939 PGN with `counter_location` also says how many frames came in between ([config.md](config.md), [j1939.md](j1939.md#received-pgns-rx), [raw-can.md](raw-can.md#config-messages)), and a program that needs every value reads the frames with `CAN_RECEIVE` ([plc-library.md](plc-library.md#frame-blocks)).
 
 ## Deploying and checking a config
 

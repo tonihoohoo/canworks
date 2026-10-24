@@ -172,6 +172,13 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
                                 "location": p["timeout_location"].strip(), "type": "BOOL", "path": path,
                                 "declared_as": declared.get(path), "node": i, "kind": "diag",
                                 "description": "%s: TPDO %s receive timeout" % (who, number)})
+                if parse_location(p.get("counter_location")):
+                    path = at + "nodes[%d].tx_pdos[%d].counter_location" % (i - first, j)
+                    number = p.get("number") or j + 1
+                    out.append({"name": unique("%s_tpdo%s_count" % (prefix, number)),
+                                "location": p["counter_location"].strip(), "type": "UINT", "path": path,
+                                "declared_as": declared.get(path), "node": i, "kind": "diag",
+                                "description": "%s: TPDO %s frames received" % (who, number)})
             for key in ("tx_pdos", "rx_pdos"):
                 for j, p in enumerate(n.get(key) or []):
                     for k, e in enumerate(p.get("entries") or []):
@@ -301,6 +308,9 @@ def declarations(cfg, object_name, declared, slave_object=None, unlocated=False)
                 if key == "rx" and parse_location(m.get("status_location")):
                     add("%s_%s_ok" % (net, identifier(m.get("name") or "PGN%s" % pgn)), m["status_location"], "BOOL",
                         mp + ".status_location", "%s %s received in time" % (who, msg))
+                if key == "rx" and parse_location(m.get("counter_location")):
+                    add("%s_%s_count" % (net, identifier(m.get("name") or "PGN%s" % pgn)), m["counter_location"],
+                        "UINT", mp + ".counter_location", "%s %s messages received" % (who, msg))
                 for k, sg in enumerate(m.get("signals") if isinstance(m.get("signals"), list) else []):
                     loc = parse_location(sg.get("iec_location") if isinstance(sg, dict) else None)
                     if not loc or loc.size not in J1939_TYPES:

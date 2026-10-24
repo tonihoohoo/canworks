@@ -10,7 +10,7 @@
 ## 2. Check
 
 - [x] 2.1 `tools/deploy/tests/test_fuxa_nodered_example.py` (plant files, plant logic text, bridge id, topics, wires, tag ids in flow, views and chart, compose and start script references); timing entry in `.github/ci/tool-test-times.json`
-- [ ] 2.2 CI time: wall and summed job time against the main baseline, in the PR description
+- [x] 2.2 CI time: PR run wall 242 s, summed 1693 s; baseline median 287 s / 1743 s (in the PR description)
 
 ## 3. Local run
 
@@ -23,5 +23,5 @@
 
 ## 5. Hand checks (no Pi)
 
-- [ ] 5.1 Mac (Colima + compose plugin): `docker compose up` on the released image, both views work, flow editor opens at `/nodered/`
-- [ ] 5.2 Windows with Docker Desktop: the same
+- [x] 5.1 Mac (Colima + compose plugin): `docker compose up` on the released image, both views work, flow editor opens at `/nodered/`. Passed 2026-10-24 on main 38398fd with canworks-bridge 0.137.2 and FUXA 1.3.5: HMI answered 4 s after `up` (images pulled before), package installed, flow and project loaded, no errors; live tags; limit 15 → alarm and `dio_in0` bit 0, Ack while too hot kept it, limit 30 + Ack cleared it, running light off + `manual_out1` 8 → `dio_in1` 8, light walks again; both views in a browser; `down -v` removed only this example
+- [x] 5.2 Windows with Docker Desktop: the same. Passed 2026-10-24 (Windows 11, Docker 29.8.2, same images): pull 64 s, HMI 12 s after `up`, every item as 5.1, no errors. A copy made with `git archive` from a clone with `core.autocrlf=true` had CRLF in `start.sh`; `.gitattributes` now keeps `*.sh` LF on every checkout
