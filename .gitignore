@@ -8,3 +8,5 @@ __pycache__/
 # release's here; the image workflows export them from tools/deploy/uv.lock).
 /tools/deploy/constraints.txt
 /constraints.txt
+# A manual --export-modbus-map OUT.csv run in the package folder
+/tools/deploy/OUT.*
