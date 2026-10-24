@@ -8,7 +8,7 @@
 ## 2. Check
 
 - [x] 2.1 `tools/deploy/tests/test_nodered_example.py` (plant files identical, config check, bridge id, topics read/written, compose and start script references)
-- [ ] 2.2 CI time: wall and summed job time against the main baseline, in the PR description
+- [x] 2.2 CI time: wall and summed job time against the main baseline, in the PR description
 
 ## 3. Local run
 
@@ -21,5 +21,5 @@
 
 ## 5. Hand checks (no Pi)
 
-- [ ] 5.1 Mac with Docker Desktop: `docker compose up` on the released image, dashboard opens, the three pages work
-- [ ] 5.2 Windows with Docker Desktop: the same
+- [x] 5.1 Mac with Docker Desktop: `docker compose up` on the released image, dashboard opens, the three pages work. Passed 2026-10-24 on the Mac with Colima plus the docker-compose plugin (no Docker Desktop there; Compose 5.6.1), tools 0.133.2: first start 63 s with image pulls, values, trend, alarm and Ack (no clear while over the limit), running light loop back, manual output with the light off, device name RTD-8, NMT stop and start; no log errors
+- [x] 5.2 Windows with Docker Desktop: the same. Passed 2026-10-24 (Docker 29.8.2, Compose 5.5.1, tools 0.133.2): first start 109 s with image pulls (Node-RED container 26 s), every item as 5.1, no log errors

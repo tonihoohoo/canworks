@@ -6,7 +6,7 @@ A [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on the canworks Node-
 
 ## Run it with Docker
 
-You need Docker (Docker Desktop on macOS and Windows) and internet on the first start. In this folder:
+You need Docker with Compose (Docker Desktop on macOS and Windows; with Colima on a Mac also the `docker-compose` plugin, for example from Homebrew) and internet on the first start. In this folder:
 
 ```sh
 docker compose up
