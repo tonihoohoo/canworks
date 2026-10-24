@@ -184,7 +184,9 @@ class BridgePage(OnlineBase):
             self.assertEqual(f.read(), nodered.package_tgz())
         pg.wait_for_selector("#banner:has-text('Manage palette > Install > upload')")
 
-        # A stopped download: each finding its own Problems row, no message bar.
+        # A stopped download: each finding its own Problems row, no message bar. The check the map hash
+        # change above started must be done first, or its answer replaces the export's findings.
+        pg.wait_for_function("() => document.body.dataset.checking === '0'")
         pg.evaluate("""() => {
           const f = window.fetch;
           window.fetch = (u, o) => String(u).endsWith('/api/connections/download')
