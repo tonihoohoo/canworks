@@ -295,6 +295,7 @@
   "tests.test_nodered.FlowShape": 0.0,
   "tests.test_nodered.FunctionCode": 0.4,
   "tests.test_nodered.Options": 0.0,
+  "tests.test_nodered_example.DashboardExampleTest": 0.2,
   "tests.test_notes.Builtin": 0.1,
   "tests.test_notes.Checks": 0.1,
   "tests.test_notes.Clear": 0.1,

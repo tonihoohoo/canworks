@@ -1,0 +1,65 @@
+# The canworks Node-RED dashboard example (README.md): the simulated plant
+# in canworks-bridge and Node-RED 4 with Dashboard 2.0. In this folder:
+#
+#   docker compose up
+#
+# then open http://localhost:1880/dashboard (the flow editor is at
+# http://localhost:1880). CANWORKS_VERSION picks the canworks release
+# (default latest); the Node-RED package and the flow come from the same
+# image as the bridge, so the versions always match.
+
+name: canworks-dashboard
+
+services:
+  # Copies the plant's files for the bridge and writes the Node-RED package
+  # and the flow of canworks.json, then exits. Runs at every `up`, so a
+  # changed config reaches the bridge.
+  setup:
+    image: ghcr.io/tonihoohoo/canworks-bridge:${CANWORKS_VERSION:-latest}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        rm -rf /share/* /plant/* &&
+        cp /example/canworks.json /example/simulation.json /example/*.eds /plant/ &&
+        /opt/canworks/venv/bin/canworks-deploy --export-nodered-package /share &&
+        /opt/canworks/venv/bin/canworks-deploy --config /example/canworks.json
+        --export-nodered /share/plant_node-red.json
+    volumes:
+      - ./:/example:ro
+      - share:/share
+      - plant:/plant
+
+  # The plant: two CANopen nodes simulated inside the bridge, no CAN
+  # interface. Modbus TCP on 127.0.0.1:1502 of this service's network only.
+  bridge:
+    image: ghcr.io/tonihoohoo/canworks-bridge:${CANWORKS_VERSION:-latest}
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    volumes:
+      - plant:/etc/canworks-bridge
+    ports:
+      - "1880:1880"   # Node-RED's, which shares this service's network
+    restart: unless-stopped
+
+  # Node-RED in the bridge's network, so it reaches 127.0.0.1:1502 on
+  # every OS; start.sh installs the packages and the flow on first start.
+  node-red:
+    image: nodered/node-red:4.1
+    network_mode: service:bridge
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+      bridge:
+        condition: service_started
+    entrypoint: ["/bin/sh", "/example/start.sh"]
+    volumes:
+      - ./:/example:ro
+      - share:/share:ro
+      - node-red-data:/data
+    restart: unless-stopped
+
+volumes:
+  plant:
+  share:
+  node-red-data:

@@ -2,6 +2,7 @@
 
 [Node-RED](https://nodered.org) uses a canworks network through the [Modbus bridge](modbus-bridge.md) with the canworks node package `node-red-canworks`: the bridge runs the CAN bus, and the package's nodes read and write its values by name and run the same jobs as the PLC function blocks (SDO, NMT, EMCY, raw CAN, J1939). Node-RED never touches the bus itself, so the bridge's watchdog, node supervision and SDO handling stay where they are.
 
+- [Dashboard example](#dashboard-example)
 - [What you need](#what-you-need)
 - [Install the package](#install-the-package)
 - [Export and import the flow](#export-and-import-the-flow)
@@ -12,6 +13,10 @@
 - [Next to OpenPLC: read-only flows](#next-to-openplc-read-only-flows)
 - [Timing and limits](#timing-and-limits)
 - [From an older export](#from-an-older-export)
+
+## Dashboard example
+
+[`examples/node-red-dashboard`](../examples/node-red-dashboard/README.md) is a ready [Node-RED Dashboard 2.0](https://dashboard.flowfuse.com) on these nodes, against the simulated plant of the Modbus bridge example (a temperature module and a digital I/O module, no CAN interface). `docker compose up` in that folder starts the bridge and Node-RED with the package, Dashboard 2.0 and the flow installed; the dashboard is at `http://localhost:1880/dashboard`. Its pages show the temperatures with a trend, an alarm with Ack, the digital inputs and outputs, NMT commands, an SDO read and received EMCY messages. The CODESYS and truST examples run the same plant and logic.
 
 ## What you need
 
