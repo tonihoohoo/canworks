@@ -10,7 +10,7 @@ Each device in the list has one line on its bridges from its last check: **This 
 
 **Install on a device** on the start page (or **Set up a Linux device** on the first run) opens Devices with no config: the header reads **Devices · no config**, and **Close** goes back to the start page. The parts table has no "This project" column. A device without the bridge gets **Install the bridge X**, without a config: open the project and install it from its Devices page to start the bridge with that config.
 
-A device that has the bridge gets its main action from what is installed (**Update A → X**, or **Up to date**), with no question. Uninstall, **Remove everything…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
+A device that has the bridge gets its main action from what is installed (**Update A → X**, or **Up to date**), with no question. Uninstall, **Uninstall canworks from the device…** and the install jobs work as with a config. No project setting changes: the device becomes a project's runtime host only when an install runs with that project open.
 
 ## Adding a device
 
@@ -31,6 +31,8 @@ Picking a device checks it again (**Check again** does too). The check is a read
 - one main action, or **Up to date**;
 - a running or last install job ([Install jobs](#install-jobs)).
 
+Below 1000 px wide the device list sits above the device's page.
+
 | The device has | The main action |
 | --- | --- |
 | No bridge (a project open, with or without an OpenPLC connection) | **Install and start this project's bridge** |
@@ -41,23 +43,25 @@ Picking a device checks it again (**Check again** does too). The check is a read
 
 The saved config runs on the device when every file a bridge action copies (see below) is there with the same SHA-256: an EDS or simulation file edited next to `canworks.json` also offers **Start this project's bridge**.
 
+When another project's bridge runs on the device, the **Start** and **Update** confirmations name it and offer **Stop A and start B** (the main button: A is stopped and disabled first) or **Start next to A**, with a warning when both use the same Modbus listen port, diagnostics port or CAN interface (the device check reads these from each running bridge's config with `python3`; without it the confirmation names A only).
+
 For a project with an OpenPLC connection, the editor's **Build and upload** then starts the PLC with the program and its Modbus settings.
 
 X is the newest `deploy-v` release, looked up on github.com from this PC (or from the device when this PC has no internet access), and the job installs exactly that version. When the canworks on the device has a newer major or minor version than the PC tools (a patch difference says nothing), one line says so with **Update PC tools…**: it checks for a newer release and offers the usual update (**Update now**, or the install command to copy where this copy cannot update itself); nothing is blocked or downgraded. **Options** under the main action has **Remote link** (`--with-link`, [remote-access.md](remote-access.md)) and **Found on the local network** (discovery). For a new install both are on; an update or a reinstall keeps them as the device has them (the link only when it is installed, serving the bridge instance it serves now, and discovery only when the device advertises now), and the box is shown unfolded when one is off. A bridge install never moves a remote link that serves another config to this project's bridge: the option is then greyed and the link stays as it is.
 
 An action that cannot run is greyed with the reason: no systemd, the SSH user cannot use sudo, no internet access to github.com, less than 2 GB free, an install already running, or the newest release could not be found.
 
-The bridge has **Uninstall…** (`install-bridge.sh --uninstall`). The **Actions** menu has **Remove everything…** (the bridge with `--purge`, its configs, the remote link and the remote CAN adapter) and **Remove device**, which only forgets the device on this PC (for every project). Nothing that is not canworks is removed.
+The bridge has **Uninstall…** (`install-bridge.sh --uninstall`). The **Actions** menu has **Uninstall canworks from the device…** (the bridge with `--purge`, its configs, the remote link and the remote CAN adapter) and **Forget this device**, which only forgets the device on this PC (for every project). Nothing that is not canworks is removed.
 
 ### Remote link and discovery
 
-Once the bridge is on the device, the **Remote link** row has **Turn on…** or **Turn off…** (and **Start** when the link is installed but stopped), and **Found on the local network** has **Turn on…** or **Turn off…**. Each runs as a job with the release's `install-link.sh` ([remote-access.md](remote-access.md)), with and without a config open. The link serves the open project's bridge or the only bridge on the device; with several bridges and none of these, the dialog asks which one. Turning the link off keeps its key and paired PCs on the device, so turning it on again keeps the pairings, and the advertisement stays (without the link) when discovery is on. **Remove everything…** removes the key and paired PCs too. The CAN interfaces row is only shown: the bridge sets the interfaces up from the config.
+Before a bridge config runs on the device, the **Remote link** row says it turns on once one runs there. Once the bridge is on the device, the **Remote link** row has **Turn on…** or **Turn off…** (and **Start** when the link is installed but stopped), and **Found on the local network** has **Turn on…** or **Turn off…**. Each runs as a job with the release's `install-link.sh` ([remote-access.md](remote-access.md)), with and without a config open. The link serves the open project's bridge or the only bridge on the device; with several bridges and none of these, the dialog asks which one. Turning the link off keeps its key and paired PCs on the device, so turning it on again keeps the pairings, and the advertisement stays (without the link) when discovery is on. **Uninstall canworks from the device…** removes the key and paired PCs too. The CAN interfaces row is only shown: the bridge sets the interfaces up from the config.
 
 ### Remote CAN adapter
 
 The **Remote CAN adapter** row turns the device's CAN adapter into an [adapter on another machine](pc-adapter.md#an-adapter-on-another-machine): PCs on the local network commission through it as through a USB adapter, with no bridge and no config needed. It is there with and without a config open, also on a device without the bridge, and lists each adapter server with its interface, bit rate, port, whether it runs, whether it allows changes and the PCs connected (`can0 · 500 kbit/s · running · changes allowed · 1 PC connected`), or **off**.
 
-- **Turn on…** (**Add…** for another interface) asks in one dialog for the interface, the bit rate (required and never guessed: this project's bridge's on that interface, and then fixed, else the interface's own rate when it is up, else the config's), **Allow changes from PCs** (on: each PC still connects read-only and unlocks changes for its own session, as with a USB adapter; off: no PC can make changes) and **Advertise on the local network**. The job runs the release's `install-adapter.sh`: it installs the PC tools in `/opt/canworks-adapter` when that version is not there yet, and `canworks-diag adapter-serve` as a service of the SSH user (a root login is refused; log in as a user with sudo). The first server uses port 7536, another interface the next free port.
+- **Turn on…** (**Add…** for another interface) asks in one dialog for the interface, the bit rate (required and never guessed: this project's bridge's on that interface, and then fixed, else the interface's own rate when it is up, else the config's; a simulated network's kept adapter counts for none of these), **Allow changes from PCs** (on: each PC still connects read-only and unlocks changes for its own session, as with a USB adapter; off: no PC can make changes) and **Advertise on the local network**. The job runs the release's `install-adapter.sh`: it installs the PC tools in `/opt/canworks-adapter` when that version is not there yet, and `canworks-diag adapter-serve` as a service of the SSH user (a root login is refused; log in as a user with sudo). The first server uses port 7536, another interface the next free port.
 - The token is made on this PC and kept in its settings for that server, as **Adapter on another machine** keeps it; only its verifier goes to the device, so the token is in no file or log there. **Copy token** gives it to another PC; a PC without it has **New token…**, after which every other PC must enter the new one.
 - **Connect from this PC** (also in the notice after the job) opens the connect panel on **Adapter on another machine** with the device filled in; with no config open it opens **Commission a CANopen device** first. One **Connect** then runs the bit rate check.
 - **Change…** runs the server with other settings and the same token; **Turn off…** removes it and frees the interface.
@@ -79,7 +83,7 @@ The page shows the steps the scripts announce, each with its time, the time so f
 
 The job downloads each release script to a file before running it, so a script that cannot be downloaded (no internet access, or a release that is gone) ends the job failed with "could not download SCRIPT VERSION". A failed job shows its exit status, its last 20 log lines and, for the failures the scripts name (no internet access, a full disk, apt locked by another program), what to do.
 
-When a job ends, the device is checked again and the page says what comes next: for a project's bridge, that it runs this project's saved config, with **Open in Commission**; for a bridge installed with no config, that it starts with a config when that config's Devices page installs it there. The device becomes the project's runtime host under **Online access** when that was empty.
+When a job ends, the device is checked again and the page says what comes next: for a project's bridge, that it runs that project's saved config as its instance (named so also when another project is open by then), with **Open in Commission** in that project; for a bridge installed with no config, that it starts with a config when that config's Devices page installs it there. The device becomes the project's runtime host under **Online access** when that was empty.
 
 ## Other ways in
 

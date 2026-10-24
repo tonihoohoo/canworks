@@ -89,7 +89,7 @@ When it starts, the configurator asks GitHub which release is the newest if it l
 
 If the tools were installed again while a configurator kept running (the one-line installer run from a terminal), the chip says **Restart for 0.x.0** instead: **Restart** brings the open tab back in the installed version and installs nothing.
 
-**Settings → Updates** has the **Check for updates** switch (on by default), **Check now** and the time of the last check. `CANWORKS_NO_UPDATE_CHECK=1` in the environment turns the check off as well.
+**Settings → Updates** has the **Check for updates** switch (on by default), **Check now** and the time of the last check. **Check now** keeps the menu open and shows "Checking…" and then the result there and in the message bar. `CANWORKS_NO_UPDATE_CHECK=1` in the environment turns the check off as well, and **Check now** with it.
 
 From a terminal, `canworks-config --update` prints the installed and the newest version and updates after a yes (`--yes` does not ask). With a configurator running, that configurator updates and comes back. Without one, the update runs in the terminal on macOS and Linux; on Windows it runs in the background, because a running program's files cannot be replaced there, and `update.log` shows its progress.
 

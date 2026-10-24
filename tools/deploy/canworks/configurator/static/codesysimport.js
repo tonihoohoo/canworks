@@ -150,6 +150,21 @@ async function ciCreate(r) {
   }
 }
 
+// Why an imported network clashes (UI-11): the same name, or the same
+// CODESYS network number, and the roles when a master would replace a slave
+// network. The server's reason and role when it sends them; otherwise from
+// the names and the open config. The imported networks are masters.
+function ciClash(c) {
+  const key = (n) => String(n || "").toLowerCase();
+  const reason = c.reason || (key(c.name) === key(c.with) ? "name" : "net_id");
+  const old = (fileConfig().networks || []).find((n) => n && n.name === c.with);
+  const role = c.with_role || (old && old.role === "slave" ? "slave" : "master");
+  const text = reason === "name"
+    ? `The imported network ${c.name} has the same name as the ${role} network ${c.with} in this config.`
+    : `The imported network ${c.name} clashes with ${c.with} in this config: both are CODESYS network ${c.net_id}.`;
+  return { text, replace: role === "slave" ? `Replace the slave network ${c.with} with the master ${c.name}` : `Replace ${c.with}` };
+}
+
 // Add to this config: the networks into the draft; a name or network number in use asks Rename or Replace.
 async function ciAdd(r) {
   const answers = {};
@@ -160,8 +175,9 @@ async function ciAdd(r) {
     } catch (e) {
       if (e.status === 409 && e.body && e.body.conflicts) {
         for (const c of e.body.conflicts) {
-          const v = await modal(`The imported network ${c.name} (CODESYS network ${c.net_id}) clashes with ${c.with} in this config.`,
-            [["cancel", "Cancel"], ["rename", "Add it as a new network"], ["replace", `Replace ${c.with}`, { danger: true }]]);
+          const why = ciClash(c);
+          const v = await modal(why.text,
+            [["cancel", "Cancel"], ["rename", "Add it as a new network"], ["replace", why.replace, { danger: true }]]);
           if (v !== "rename" && v !== "replace") return false;
           answers[c.name] = v;
         }

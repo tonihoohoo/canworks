@@ -23,9 +23,9 @@ const DEV = {
 const DEV_POLL_MS = 1500;
 const DEV_PART_ICON = { ok: "operational", warn: "warning", off: "unknown" };
 const DEV_ACTION_DONE = {
-  install_bridge: "The bridge runs this project's saved config.",
+  install_bridge: "The bridge runs its saved config.",
   install_bridge_only: "The bridge is installed. It starts with a config when that config's Devices page installs it here.",
-  bridge_config: "The bridge runs this project's saved config.",
+  bridge_config: "The bridge runs its saved config.",
   uninstall_bridge: "The Modbus bridge was uninstalled.",
   remove_all: "canworks was removed from the device.",
   link_on: "The remote link is on. PCs pair with it as before, by logging in to the runtime on the local network.",
@@ -41,7 +41,7 @@ const DEV_ACTION_DONE = {
 const DEV_ACTION_NAME = {
   install_bridge: "Install the bridge",
   bridge_config: "Start this project's bridge", uninstall_bridge: "Uninstall the bridge",
-  remove_all: "Remove everything", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
+  remove_all: "Uninstall canworks from the device", link_on: "Turn on the remote link", link_off: "Turn off the remote link",
   link_start: "Start the remote link", discovery_on: "Advertise on the local network",
   discovery_off: "Stop advertising on the local network", adapter_on: "Turn on the remote CAN adapter",
   adapter_change: "Change the remote CAN adapter", adapter_token: "New token for the remote CAN adapter",
@@ -125,7 +125,14 @@ function devWhen(epoch) {
   if (!epoch) return "never";
   const d = new Date(epoch * 1000);
   const today = new Date().toDateString() === d.toDateString();
-  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+  // With seconds today: a check right after a job shows a new time.
+  return today ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
+}
+
+// The sudo password field of a job's confirmation: label above, hint below.
+function devSudoField(d, input, help) {
+  return el("div", { class: "field devices-sudo" }, el("label", null, `sudo password of ${d.user || "the SSH user"} on the device`, input),
+    hint(help));
 }
 
 async function devLoad() {
@@ -253,8 +260,8 @@ function devPagePane() {
   const menu = el("details", { class: "menu", dataset: { devices: "menu" } }, el("summary", { "aria-haspopup": "menu" }, "Actions"),
     el("div", { role: "menu", "aria-label": "Actions" },
       el("button", { type: "button", class: "item", role: "menuitem", dataset: { devices: "remove-all" },
-        disabled: !p || (job && !job.done) ? "Check the device first." : null, onclick: () => devStart(d.id, "remove_all") }, "Remove everything…"),
-      el("button", { type: "button", class: "item", role: "menuitem", dataset: { devices: "remove" }, onclick: () => devRemove(d.id) }, "Remove device")));
+        disabled: !p || (job && !job.done) ? "Check the device first." : null, onclick: () => devStart(d.id, "remove_all") }, "Uninstall canworks from the device…"),
+      el("button", { type: "button", class: "item", role: "menuitem", dataset: { devices: "remove" }, onclick: () => devRemove(d.id) }, "Forget this device")));
   pane.append(el("div", { class: "devices-head" }, el("h3", null, devLabel(d)), el("span", { class: "spacer" }), check, menu));
   const head = [p && p.plan.header, p ? `checked ${devWhen(p.at)}` : null].filter(Boolean).join(" · ");
   if (head) pane.append(el("p", { class: "muted", dataset: { devices: "header" } }, head));
@@ -412,7 +419,7 @@ async function devProbe(id, refresh) {
   const d = devItem(id);
   const mine = d && d.job && job && d.job.id === job.id ? d.job : null;
   if (job && (job.state === "active" || job.state === "activating" || (mine && !mine.done)) && (!DEV.jobs[id] || DEV.jobs[id].id !== job.id)) {
-    devFollowStart(id, job.id, mine ? mine.action : null);
+    devFollowStart(id, job.id, mine ? mine.action : null, null, mine ? mine.instance : null);
   }
   await devLoad();
   if (S.view === "devices") render();
@@ -433,8 +440,8 @@ async function devOfferKeyLogin(id) {
 
 async function devRemove(id) {
   const d = devItem(id);
-  const v = await modal(`Remove ${devLabel(d)} from this PC's devices? It goes from every project's list; nothing changes on the device.`,
-    [["cancel", "Cancel"], ["remove", "Remove device", { danger: true }]]);
+  const v = await modal(`Forget ${devLabel(d)} on this PC? It goes from every project's list; nothing changes on the device.`,
+    [["cancel", "Cancel"], ["remove", "Forget this device", { danger: true }]]);
   if (v !== "remove") return;
   try { await api("POST", "/api/devices/remove", { device: id }); } catch (e) { banner(e.message, true); return; }
   delete DEV.probes[id]; delete DEV.jobs[id]; delete DEV.errors[id];
@@ -471,28 +478,37 @@ async function devStart(id, action, act) {
   const choose = main && main.choose;
   const pickField = choose ? el("select", { dataset: { devices: "link-instance" }, "aria-label": "Bridge config the link serves" },
     choose.map((n) => el("option", { value: n }, n))) : null;
+  // Another project's bridge runs there (UI-4): stop it first, or start next to it.
+  const others = main && main.stop_others && main.stop_others.length ? main.stop_others : null;
+  const warnings = (main && main.warnings) || [];
   let pw = null;
   let wrong = false;
+  let stopOthers = false;
   for (;;) {
-    if (effects.length || sudo || choose || form) {
+    if (effects.length || sudo || choose || form || others) {
       const field = sudo ? el("input", { type: "password", autocomplete: "off", dataset: { devices: "sudo" }, "aria-label": `sudo password of ${d.user || "the SSH user"}` }) : null;
       const err = msgBar({ devices: "sudo-error" }, wrong ? "sudo on the device did not accept the password." : "");
       const extra = el("div", null, err, form ? form.el : null, effects.map((t) => el("p", { dataset: { devices: "effect" } }, t)),
+        warnings.map((t) => notice("warning", t, { live: false, dataset: { devices: "clash" } })),
         choose ? el("label", null, "The bridge config the link serves", pickField) : null,
-        sudo ? el("label", null, `sudo password of ${d.user || "the SSH user"} on the device`, field,
-          hint("Used to start this job only; not kept.")) : null);
+        sudo ? devSudoField(d, field, "Used to start this job only; not kept.") : null);
       const danger = action.startsWith("uninstall") || action === "remove_all" || action === "adapter_off";
-      const v = await modal(`${title} on ${d.id}?`, [["cancel", "Cancel"], ["go", danger ? DEV_ACTION_NAME[action].replace("…", "") : "Start", danger ? { danger: true } : true]], extra);
-      if (v !== "go") return;
+      const buttons = others ? [["cancel", "Cancel"], ["next", main.next_label], ["stop", main.stop_label, true]]
+        : [["cancel", "Cancel"], ["go", danger ? DEV_ACTION_NAME[action].replace("…", "") : "Start", danger ? { danger: true } : true]];
+      const v = await modal(`${title} on ${d.id}?`, buttons, extra);
+      if (v !== "go" && v !== "next" && v !== "stop") return;
+      stopOthers = v === "stop";
       pw = field ? field.value : null;
       if (form && form.error()) { wrong = false; continue; }
     }
     try {
       const options = Object.assign({}, DEV.options || {}, pickField ? { link_instance: pickField.value } : {},
-        main && main.adapter ? { adapter: main.adapter, port: main.port } : {}, form ? form.values() : {});
+        main && main.adapter ? { adapter: main.adapter, port: main.port } : {}, form ? form.values() : {},
+        stopOthers ? { stop_others: others } : {});
       const r = await devCall("/api/devices/start", { device: id, action, options, sudo_password: pw || undefined });
       if (!r) return;
-      devFollowStart(id, r.job, action, options.adapter ? { adapter: options.adapter, port: options.port } : null);
+      devFollowStart(id, r.job, action, options.adapter ? { adapter: options.adapter, port: options.port } : null,
+        ["install_bridge", "bridge_config"].includes(action) ? DEV.list.instance : null);
       render();
       return;
     } catch (e) {
@@ -514,10 +530,12 @@ async function devStart(id, action, act) {
 
 // -- following a job -------------------------------------------------------------------
 
-function devFollowStart(id, jobId, action, served) {
+// `instance`: the bridge instance a bridge job runs for, kept with the job:
+// its result names it whatever project is open when it ends (UI-5).
+function devFollowStart(id, jobId, action, served, instance) {
   const old = DEV.jobs[id];
   if (old && old.timer) clearTimeout(old.timer);
-  DEV.jobs[id] = { id: jobId, action, served: served || null, offset: 0, steps: [], lines: [], exit: null, state: "active", done: false, started: null, failure: null };
+  DEV.jobs[id] = { id: jobId, action, served: served || null, instance: instance || null, offset: 0, steps: [], lines: [], exit: null, state: "active", done: false, started: null, failure: null };
   if (typeof jobsKick === "function") jobsKick();
   devFollow(id);
 }
@@ -599,8 +617,10 @@ function devJobView(d, j) {
   if (j.done) {
     if (!failed && j.exit === 0) {
       let text = DEV_ACTION_DONE[j.action] || "The job ended.";
-      const projectBridge = ["install_bridge", "bridge_config"].includes(j.action) && DEV.list.instance;
-      if (projectBridge) text = `The bridge runs this project's saved config as ${DEV.list.instance}.`;
+      const bridgeJob = ["install_bridge", "bridge_config"].includes(j.action) && j.instance;
+      const projectBridge = bridgeJob && j.instance === DEV.list.instance;
+      if (projectBridge) text = `The bridge runs this project's saved config as ${j.instance}.`;
+      else if (bridgeJob) text = `The bridge runs the saved config of ${j.instance}.`;
       else if (j.action === "install_bridge") text = DEV_ACTION_DONE.install_bridge_only;
       const open = projectBridge
         ? el("button", { type: "button", dataset: { devices: "open-commission" }, onclick: () => switchWorkspace("commission") }, "Open in Commission")
@@ -615,7 +635,7 @@ function devJobView(d, j) {
       if (f.tail && f.tail.length) box.append(el("pre", { class: "devices-tail", dataset: { devices: "tail" } }, f.tail.join("\n")));
     }
   }
-  const log = el("details", { class: "devices-log", dataset: { devices: "log" } }, el("summary", null, `Log (${j.lines.length} lines)`),
+  const log = el("details", { class: "devices-log", dataset: { devices: "log" } }, el("summary", null, `Log (${j.lines.length} ${j.lines.length === 1 ? "line" : "lines"})`),
     el("pre", { tabindex: "0", "aria-label": "Job log" }, j.lines.slice(-500).join("\n")));
   const was = document.querySelector("[data-devices=log]");
   if (was && was.open) log.open = true;
@@ -632,7 +652,7 @@ async function devStop(id, button) {
   const field = sudo ? el("input", { type: "password", autocomplete: "off", dataset: { devices: "sudo" }, "aria-label": "sudo password" }) : null;
   const v = await modal(`Stop the install on ${d.id}? What it changed so far stays; check the device and start again afterwards.`,
     [["cancel", "Keep it running"], ["stop", "Stop", { danger: true }]],
-    sudo ? el("label", null, `sudo password of ${d.user || "the SSH user"} on the device`, field) : null);
+    sudo ? devSudoField(d, field, "Used to stop this job only; not kept.") : null);
   if (v !== "stop") return;
   await busy(button, "Stopping…", async () => {
     try { await devCall("/api/devices/stop", { device: id, job: j.id, sudo_password: field ? field.value : undefined }); }

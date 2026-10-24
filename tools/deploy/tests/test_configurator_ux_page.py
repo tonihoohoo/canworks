@@ -22,7 +22,7 @@ from .test_configurator_online_page import OnlineBase
 from .test_configurator_page import RTD, fake_editor_cli
 
 TREE_NODE = '#tree [data-key="0:node:%d"]'
-NO_NODES = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission a device."
+NO_NODES = "No nodes yet. Add a node from its EDS, or find the devices on the bus in Commission."
 TEXT_NODES = """() => [...document.querySelectorAll('#editor, header, #banner')].flatMap((root) => {
   const out = [];
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
@@ -719,3 +719,24 @@ class CleanProject(OnlineBase):
         self.assertEqual(labels, ["Cancel", "Create project"])
         pg.keyboard.press("Escape")
         pg.wait_for_selector("#modal[open]", state="hidden")
+
+    def test_new_editor_project_needs_openplc_cli(self):
+        # UI-9: without openplc-cli the Project page's button is off with the reason, as in Add connection.
+        pg = self.page
+        os.environ["OPENPLC_CLI"] = os.path.join(self.dir, "no-such-openplc-cli")
+        self.addCleanup(os.environ.pop, "OPENPLC_CLI", None)
+        folder = os.path.join(self.dir, "standalone")
+        os.makedirs(folder)
+        shutil.copy(os.path.join(PINGPONG, "cpp-slave.eds"), folder)
+        with open(os.path.join(folder, "canworks.json"), "w", encoding="utf-8") as f:
+            json.dump(with_openplc(load(self.config_path)), f, indent=2)
+        pg.goto(self.server.url)
+        pg.click("#start-open")
+        pg.fill("[data-folder=path]", folder)
+        pg.click("[data-folder=dialog] [data-value=use]")
+        pg.wait_for_selector("#editor:not([hidden])")
+        tree_view(pg, "project")
+        button = 'button[data-editor-project="new"]'
+        pg.wait_for_selector(button)
+        self.assertTrue(pg.is_disabled(button))
+        self.assertIn("openplc-cli", pg.get_attribute(button, "title"))

@@ -42,6 +42,10 @@ function updateShow(v) {
   const check = $("#update-check");
   check.checked = v.off !== "setting" && v.off !== "env";
   check.disabled = v.off === "env";
+  // Check now asks the same server: off with the reason while the environment turns the check off (UI-7).
+  const now = $("#update-check-now");
+  if (!now.dataset.busy) now.disabled = v.off === "env";
+  now.title = v.off === "env" ? "Turned off by CANWORKS_NO_UPDATE_CHECK" : "";
   let status = `Version ${v.version}. ` + (v.checking ? "Checking…" : `Last check: ${updateWhen(v.checked_at)}.`);
   if (v.error && !v.checking) status += ` The check failed: ${v.error}.`;
   else if (v.latest && !v.checking) status += v.newer ? ` ${v.latest} is available.` : " This is the newest version.";
@@ -187,6 +191,14 @@ async function updateCheckNow() {
   }
 }
 
+// The result of Settings → Check now in the banner as well.
+function updateCheckBanner(v) {
+  if (!v || v.checking) return;
+  if (v.error) banner(`The update check failed: ${v.error}.`, true);
+  else if (v.newer) banner(`canworks ${v.latest} is available: the Update chip in the header has it.`, "info");
+  else banner(`These PC tools (${v.version}) are the newest release.`, "done");
+}
+
 // "Update PC tools…" from elsewhere (the Devices page): check now, then the
 // usual dialog; with no newer release to offer, the install command to copy.
 async function updatePcTools(button) {
@@ -221,7 +233,11 @@ function wireUpdate() {
       await updateLoad();
     } catch (err) { banner(err.message, true); }
   };
-  $("#update-check-now").onclick = () => busy($("#update-check-now"), "Checking…", updateCheckNow);
+  // Not a menu item: the menu stays open, so "Checking…" and the result show there (UI-6), and in the banner.
+  $("#update-check-now").onclick = () => busy($("#update-check-now"), "Checking…", async () => {
+    await updateCheckNow();
+    updateCheckBanner(UPD.view);
+  });
   updateLoad();
   // The check at start runs in the background: look again once it has had time.
   setTimeout(updateLoad, 8000);

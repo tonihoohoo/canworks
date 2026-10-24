@@ -135,7 +135,7 @@ class StartPage(Base):
         self.assertIn("already has a canworks.json. Open it instead?", pg.inner_text("#modal-text"))
         self.answer("open")
         pg.wait_for_selector("#editor:not([hidden])")
-        self.assertIn("config " + os.path.basename(folder), pg.inner_text("#mode"))
+        self.assertIn("config " + os.path.basename(folder), pg.text_content("#mode"))
         self.assertIn(folder, pg.get_attribute("#mode", "title"))
 
     def test_folder_dialog_and_recent(self):

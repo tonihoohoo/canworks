@@ -63,6 +63,10 @@ case $1 in
         if [ -f "$FAKE_UNITS/$2" ]; then cat "$FAKE_UNITS/$2"; else echo inactive; exit 3; fi ;;
     is-enabled)
         echo enabled ;;
+    disable)
+        [ "$2" = --now ] && echo inactive > "$FAKE_UNITS/$3" ;;
+    restart)
+        echo active > "$FAKE_UNITS/$2" ;;
 esac
 """
 

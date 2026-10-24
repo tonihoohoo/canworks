@@ -170,7 +170,7 @@ class Devices:
             v = release.latest_on_device(conn)
         return v
 
-    def view(self, target, instance, config_path, pc_version, own_host=None, networks=None):
+    def view(self, target, instance, config_path, pc_version, own_host=None, networks=None, uses=None):
         """The device list: every device of this PC, each with one line on
         its bridge instances from its last probe (`summary`), the open
         project's own devices first (its runtime host `own_host`, its bridge
@@ -183,7 +183,7 @@ class Devices:
                     "probe_at": d.get("probe_at"), "job": d.get("job"), "job_seconds": d.get("job_seconds")}
             if d.get("probe"):
                 item["plan"] = plan_mod.plan(d["probe"], target, d.get("latest"), pc_version, instance, sha,
-                                             networks, self.tokens(d["host"], d["probe"]))
+                                             networks, self.tokens(d["host"], d["probe"]), uses=uses)
                 item["plan"]["options"] = job_options(d["probe"])
                 item["latest"] = d.get("latest")
             found = [i for i in ((d.get("probe") or {}).get("bridge") or {}).get("instances") or []
@@ -212,7 +212,7 @@ class Devices:
         return ssh.forget_host_key(self.store, dev["host"], dev.get("port") or 22)
 
     def probe(self, did, target, instance, config_path, pc_version, password=None, trust=None,
-              refresh=False, networks=None):
+              refresh=False, networks=None, uses=None):
         conn, by_password = self.connection(did, password=password, trust=trust)
         env = "".join("%s=%s " % (k, ssh.quote(v)) for k, v in sorted(self.probe_env.items()))
         try:
@@ -241,7 +241,7 @@ class Devices:
         sha = config_hashes(config_path)
         out = {"probe": probe, "latest": latest,
                "plan": plan_mod.plan(probe, target, latest, pc_version, instance, sha, networks,
-                                     self.tokens(self.store.get(did)["host"], probe)),
+                                     self.tokens(self.store.get(did)["host"], probe), uses=uses),
                "offer_key_login": by_password}
         out["plan"]["options"] = job_options(probe)
         return out
@@ -336,14 +336,21 @@ class Devices:
             link_config, runtime_port = serves.get("config"), serves.get("runtime_port")
         if action in jobs.ADAPTER_ACTIONS:
             discovery = adapter.pop("discovery")
-        lines = jobs.commands(action, version, self.paths, link=link,
+        # Start A next to B, or stop the other running bridges first (UI-4): only instances the probe saw running.
+        running = [i.get("name") for i in (probe.get("bridge") or {}).get("instances") or []
+                   if isinstance(i, dict) and i.get("state") == "active" and i.get("name") != instance]
+        stop = options.get("stop_others") if action in jobs.BRIDGE_ACTIONS else None
+        if stop is not None and (not isinstance(stop, list) or any(n not in running for n in stop)):
+            raise SshError("only a bridge that runs on the device can be stopped: check the device again")
+        lines = jobs.commands(action, version, self.paths, link=link, stop=stop or None,
                               discovery=discovery, purge=options.get("purge") is True,
                               adapters=bool(probe.get("adapters")), **adapter,
                               link_config=link_config, runtime_port=runtime_port, link_instance=link_instance,
                               instance=instance if action in jobs.BRIDGE_ACTIONS else None,
                               upload=upload, bridge_prefix=(probe.get("bridge") or {}).get("prefix"))
         job_id = jobs.start(conn, probe.get("sudo"), sudo_password, action, lines, self.paths)
-        self.store.update(did, job={"id": job_id, "action": action, "version": version})
+        self.store.update(did, job={"id": job_id, "action": action, "version": version,
+                                    "instance": instance if action in jobs.BRIDGE_ACTIONS else None})
         self.running[did] = job_id
         return job_id
 
