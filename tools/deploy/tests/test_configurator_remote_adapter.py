@@ -88,6 +88,18 @@ class RemoteTarget(Online):
         self.ok("POST", "/api/online/disconnect", {})
         self.assertFalse(self.server.connection.connected)
 
+    def test_read_only_server_keeps_changes_off(self):
+        # Allow changes on this PC cannot open a server started without --allow-changes.
+        self.srv.allow_changes = False
+        self.ok("POST", "/api/online/settings", {"remote_adapter": True, "remote_host": self.address})
+        self.ok("POST", "/api/online/settings", {"remote_token": TOKEN})
+        self.ok("POST", "/api/online/status", {})
+        self.ok("POST", "/api/online/settings", {"allow_changes": True})
+        r = self.ok("POST", "/api/online/status", {})
+        self.assertFalse(r["status"]["allow_changes"])
+        self.assertFalse(r["hello"]["allow_changes"])
+        self.assertFalse(r["conn"]["server_allow_changes"])
+
     def test_wrong_token(self):
         self.ok("POST", "/api/online/settings", {"remote_adapter": True, "remote_host": self.address})
         self.ok("POST", "/api/online/settings", {"remote_token": "not-it"})

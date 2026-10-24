@@ -356,12 +356,20 @@ const LOCKED_TEXT = "Locked. Changes are not allowed on this connection.";
 // The warning bar at the top of a section with locked controls: the reason
 // and Unlock…. `focus` is a selector of the control to focus once it is enabled.
 function lockedNote(dataKey, focus, prefix) {
-  const btn = el("button", { type: "button", class: "small", dataset: { unlock: dataKey }, onclick: () => unlock(focus || null, btn) }, "Unlock…");
-  return notice("warning", (prefix ? prefix + " " : "") + LOCKED_TEXT + " " + NO_CHANGES, { class: "locked", live: false, actions: [btn], dataset: { online: dataKey } });
+  // A read-only adapter server: Unlock… on this PC would change nothing.
+  const btn = serverReadOnly() ? null
+    : el("button", { type: "button", class: "small", dataset: { unlock: dataKey }, onclick: () => unlock(focus || null, btn) }, "Unlock…");
+  return notice("warning", (prefix ? prefix + " " : "") + LOCKED_TEXT + " " + NO_CHANGES,
+    { class: "locked", live: false, actions: btn ? [btn] : [], dataset: { online: dataKey } });
 }
 
 async function unlock(focus, btn) {
   const c = S.onlineLast && S.onlineLast.conn;
+  if (serverReadOnly()) {
+    await modal(NO_CHANGES, [["ok", "OK", true]]);
+    if (btn && btn.isConnected) btn.focus();
+    return;
+  }
   if (!connAdapter() || (c && c.allow_changes_source && c.allow_changes_source !== "switch")) {
     await modal("This runtime decides whether changes are allowed. Turn on Allow changes in Configure → Project → Online access, save and upload the config; it takes effect after the upload.",
       [["ok", "OK", true]]);

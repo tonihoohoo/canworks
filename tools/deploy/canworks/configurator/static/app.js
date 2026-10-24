@@ -4020,6 +4020,15 @@ const ADAPTER_NO_CHANGES = "Changes are off for this USB adapter connection (pre
 function remoteNoChanges(host) {
   return `Changes are off for this connection to the adapter on ${host} (press Unlock… in the connection bar).`;
 }
+// An adapter server started without --allow-changes: no Unlock… helps.
+function serverNoChanges(host) {
+  return `The adapter server on ${host} was started without --allow-changes: reading only. Allow changes from PCs with Change… on the Devices page, or start it with --allow-changes on that machine.`;
+}
+// The open adapter connection is to such a server.
+function serverReadOnly() {
+  const st = S.onlineLast && S.onlineLast.status;
+  return !!st && st.server_allow_changes === false;
+}
 let NO_CHANGES = RUNTIME_NO_CHANGES;
 
 function hex8(n) { return "0x" + (Number(n) >>> 0).toString(16).toUpperCase().padStart(8, "0"); }
@@ -4594,7 +4603,8 @@ function onlineApply(r, err) {
   if (staleNote) staleNote.remove();
   runtimeNetworks(r);
   const st = r.status;
-  NO_CHANGES = !st.local ? RUNTIME_NO_CHANGES : st.remote ? remoteNoChanges(r.remote || st.remote) : ADAPTER_NO_CHANGES;
+  NO_CHANGES = !st.local ? RUNTIME_NO_CHANGES : st.server_allow_changes === false ? serverNoChanges(r.remote || st.remote)
+    : st.remote ? remoteNoChanges(r.remote || st.remote) : ADAPTER_NO_CHANGES;
   if (st.local) {
     localLive(r, conn);
     if (S.onlineNode !== undefined && S.onlineNode !== null && S.onlineNodeAllow !== r.hello.allow_changes) renderOnlineNode();
